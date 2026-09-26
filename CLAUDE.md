@@ -11,9 +11,9 @@ results. Scores the **room, not the person** — no health data.
 - Rust installed on the board; `build-essential pkg-config libssl-dev` installed.
 - Both sensors wired and **verified** with a C++ test sketch in App Lab (app `sensor-test`):
   CCS811 found at I²C **0x5A**; DHT11 reads temp/humidity.
-- **Next step (untested):** sketch sends readings to Linux via `Bridge.notify("reading", ...)`,
-  and a Rust program on Linux receives them through the Arduino router socket.
-  See "Next step" below.
+- **Bridge verified (Sat Sep 26):** App Lab app `sensor-test` runs `firmware/sensor_bridge.ino`,
+  which calls `Bridge.notify("reading", ...)`; `router-test/` (Rust, `rmpv`) registers `reading`
+  on the router socket and receives the readings. No sudo needed. Next: backend (see build order).
 
 ## Key decisions (these override anything older in the SRS)
 
@@ -78,17 +78,16 @@ socket at `/var/run/arduino-router.sock` (confirmed with `sudo ss -xlp | grep -i
   notifications: `[2, method, params]`.
 - Registrations drop when the client disconnects. `$/unregister`, `$/reset` also exist.
 
-## Next step (untested)
+## Bridge (verified)
 
-1. MCU sketch (App Lab app `sensor-test`, see `firmware/sensor_bridge.ino`) keeps the
-   latest CCS811 values and every 10 s (60 s in production) reads the DHT11, sets
-   compensation, and calls
-   `Bridge.notify("reading", (int)eco2, (int)tvoc, temp_f, humidity)`.
-2. Rust test program (`router-test/`, crate `rmpv`): connect to the router socket, send
-   `$/register` for `reading`, loop reading msgpack values and print notifications;
-   reply to any requests with `[1, id, nil, true]`.
-3. If registration works but no readings arrive, switch the sketch to `Bridge.call`.
-4. If "Permission denied" on the socket, run with sudo or fix the socket group.
+- MCU sketch (`firmware/sensor_bridge.ino`, App Lab app `sensor-test`) keeps the latest
+  CCS811 values and every 10 s (60 s in production) reads the DHT11, sets compensation,
+  and calls `Bridge.notify("reading", (int)eco2, (int)tvoc, temp_f, humidity)`.
+  temp_f/humidity are NaN if the DHT11 read fails.
+- `router-test/` connects to the socket, sends `$/register` for `reading`, and prints
+  notifications (params `[eco2, tvoc, temp_f, humidity]`). It replies `[1, id, nil, true]`
+  to requests, so `Bridge.call` would also work. Run: `cargo run -p router-test`.
+- Board runs ~78 °F on the DHT11; check for board heat before the overnight run.
 
 ## Backend layout (target)
 

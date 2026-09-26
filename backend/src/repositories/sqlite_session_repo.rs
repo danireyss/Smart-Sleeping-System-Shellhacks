@@ -82,6 +82,22 @@ impl SessionRepository for SqliteSessionRepository {
         );
         conn.query_row(&sql, [], raw_row).optional()?.map(to_session).transpose()
     }
+
+    fn ended(&self, limit: usize) -> Result<Vec<SleepSession>, RepoError> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let sql = format!(
+            "{SELECT_SESSION} WHERE ended_at IS NOT NULL ORDER BY ended_at DESC, id DESC LIMIT ?1"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([limit as i64], raw_row)?;
+        rows.map(|row| to_session(row?)).collect()
+    }
+
+    fn get(&self, id: i64) -> Result<Option<SleepSession>, RepoError> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let sql = format!("{SELECT_SESSION} WHERE id = ?1");
+        conn.query_row(&sql, [id], raw_row).optional()?.map(to_session).transpose()
+    }
 }
 
 fn open_session(conn: &Connection) -> Result<Option<SleepSession>, RepoError> {
@@ -178,5 +194,28 @@ mod tests {
         let second = repo.end(t(4) + Duration::milliseconds(250)).unwrap().unwrap();
         repo.start(t(5)).unwrap(); // open sessions are not "ended"
         assert_eq!(repo.latest_ended().unwrap(), Some(second));
+    }
+
+    #[test]
+    fn ended_lists_newest_first_and_skips_the_open_session() {
+        let repo = SqliteSessionRepository::in_memory().unwrap();
+        let mut ended = Vec::new();
+        for h in [1, 3, 5] {
+            repo.start(t(h)).unwrap();
+            ended.push(repo.end(t(h + 1)).unwrap().unwrap());
+        }
+        repo.start(t(7)).unwrap();
+        ended.reverse();
+        assert_eq!(repo.ended(10).unwrap(), ended);
+        assert_eq!(repo.ended(2).unwrap(), ended[..2]);
+    }
+
+    #[test]
+    fn get_by_id() {
+        let repo = SqliteSessionRepository::in_memory().unwrap();
+        repo.start(t(1)).unwrap();
+        let s = repo.end(t(2)).unwrap().unwrap();
+        assert_eq!(repo.get(s.id).unwrap(), Some(s));
+        assert_eq!(repo.get(999).unwrap(), None);
     }
 }

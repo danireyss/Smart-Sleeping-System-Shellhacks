@@ -29,7 +29,13 @@ Started and ended on the device's touch screen, not in the web UI.
 
 ## Last night
 
-Shown after sleep mode ends.
+Shown after sleep mode ends, and from the Last night tab.
+
+- A month calendar (right column, above the chat) with every past night colored by its
+  band and showing its score; incomplete nights have a dashed gray outline, short
+  sessions are faded. Clicking a night shows its report (`?night=<id>` in the URL).
+  A night belongs to the date it started, counted noon to noon (bed at 12:30 AM is
+  still the previous night); if a date has several sessions, the longest full one wins.
 
 - Left side:
   - the nightly score and band

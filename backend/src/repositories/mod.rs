@@ -38,4 +38,10 @@ pub trait SessionRepository: Send + Sync {
 
     /// The session that ended most recently, if any.
     fn latest_ended(&self) -> Result<Option<SleepSession>, RepoError>;
+
+    /// Ended sessions, most recent first, at most `limit`.
+    fn ended(&self, limit: usize) -> Result<Vec<SleepSession>, RepoError>;
+
+    /// A session by id (open or ended).
+    fn get(&self, id: i64) -> Result<Option<SleepSession>, RepoError>;
 }

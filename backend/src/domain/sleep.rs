@@ -60,6 +60,38 @@ pub struct NightReport {
     pub lowest_metric: Option<LowestMetric>,
 }
 
+/// One night for the history calendar: the headline numbers of a `NightReport`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NightSummary {
+    pub session_id: i64,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: DateTime<Utc>,
+    pub duration_minutes: i64,
+    pub short_session: bool,
+    #[serde(serialize_with = "round::tenths_opt")]
+    pub score: Option<f64>,
+    pub band: Option<Band>,
+    #[serde(serialize_with = "round::tenths")]
+    pub completeness_pct: f64,
+    pub incomplete: bool,
+}
+
+impl From<&NightReport> for NightSummary {
+    fn from(r: &NightReport) -> Self {
+        Self {
+            session_id: r.session_id,
+            started_at: r.started_at,
+            ended_at: r.ended_at,
+            duration_minutes: r.duration_minutes,
+            short_session: r.short_session,
+            score: r.score,
+            band: r.band,
+            completeness_pct: r.completeness_pct,
+            incomplete: r.incomplete,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct LowestMetric {
     /// "eco2", "temp", or "humidity" (same names as the score fields).

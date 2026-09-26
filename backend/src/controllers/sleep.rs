@@ -1,13 +1,14 @@
 //! Sleep sessions and nightly reports:
 //! POST /api/sleep/start, POST /api/sleep/end, GET /api/sleep/current,
-//! GET /api/night/latest.
+//! GET /api/night/latest, GET /api/night/{id}, GET /api/nights.
 
-use axum::extract::State;
+use axum::extract::rejection::PathRejection;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 
 use super::{ApiError, AppState};
-use crate::domain::sleep::{NightReport, SleepSession, StartOutcome};
+use crate::domain::sleep::{NightReport, NightSummary, SleepSession, StartOutcome};
 
 /// 201 with the new session, or 409 if a session is already open.
 pub async fn start(
@@ -37,6 +38,22 @@ pub async fn current(State(state): State<AppState>) -> Result<Json<Option<SleepS
 pub async fn latest_night(State(state): State<AppState>) -> Result<Json<NightReport>, ApiError> {
     let report = state.sleep.latest_night().await?;
     report.map(Json).ok_or(ApiError::NotFound("no finished sleep session yet"))
+}
+
+/// Report for one session by id. 404 if it doesn't exist or is still open.
+pub async fn night(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> Result<Json<NightReport>, ApiError> {
+    let Path(id) = id.map_err(|_| ApiError::BadRequest("night id must be a number".to_string()))?;
+    let report = state.sleep.night(id).await?;
+    report.map(Json).ok_or(ApiError::NotFound("no finished sleep session with that id"))
+}
+
+/// Every finished session, most recent first, with its score and band
+/// (for the history calendar).
+pub async fn nights(State(state): State<AppState>) -> Result<Json<Vec<NightSummary>>, ApiError> {
+    Ok(Json(state.sleep.nights().await?))
 }
 
 #[cfg(test)]
@@ -89,6 +106,47 @@ mod tests {
             humidity_pct: Some(49.8),
             uptime_s: WARM_UP_SECS,
         }
+    }
+
+    #[tokio::test]
+    async fn nights_list_and_individual_reports() {
+        // Readings every minute 02:00-06:00; nights 02:00-03:00 and 04:00-05:30, one open at 06:00.
+        let readings: Vec<_> =
+            (0..240).map(|m| reading(t(2) + Duration::minutes(m), 76.64)).collect();
+        let app = app(&readings);
+        app.sessions.start(t(2)).unwrap();
+        let first = app.sessions.end(t(3)).unwrap().unwrap();
+        app.sessions.start(t(4)).unwrap();
+        let second = app.sessions.end(t(5) + Duration::minutes(30)).unwrap().unwrap();
+        app.sessions.start(t(6)).unwrap(); // open: not listed
+
+        let (status, nights) = get(&app, "/api/nights").await;
+        assert_eq!(status, StatusCode::OK);
+        let nights = nights.as_array().unwrap();
+        assert_eq!(nights.len(), 2);
+        assert_eq!(nights[0]["session_id"], second.id); // most recent first
+        assert_eq!(nights[0]["duration_minutes"], 90);
+        assert_eq!(nights[0]["score"], 78.0);
+        assert_eq!(nights[0]["band"], "fair");
+        assert_eq!(nights[0]["incomplete"], false);
+        assert_eq!(nights[1]["session_id"], first.id);
+        assert!(nights[0].get("eco2_ppm").is_none(), "summaries stay small");
+
+        let (status, night) = get(&app, &format!("/api/night/{}", first.id)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(night["started_at"], "2026-09-26T02:00:00Z");
+        assert_eq!(night["duration_minutes"], 60);
+        assert_eq!(night["temp_f"]["avg"], 76.6);
+
+        // Still-open session, unknown id, and a bad id.
+        let open_id = first.id + 2;
+        assert_eq!(get(&app, &format!("/api/night/{open_id}")).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(get(&app, "/api/night/999").await.0, StatusCode::NOT_FOUND);
+        let (status, body) = get(&app, "/api/night/abc").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "night id must be a number");
+        // The fixed route still wins over {id}.
+        assert_eq!(get(&app, "/api/night/latest").await.1["session_id"], second.id);
     }
 
     #[tokio::test]

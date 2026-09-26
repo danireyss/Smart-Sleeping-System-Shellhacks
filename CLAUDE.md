@@ -134,7 +134,8 @@ SSE clients. Agent tools call reading_service (same path as the dashboard).
 
 API: `GET /api/current`, `GET /api/readings?start=&end=`, `GET /api/summary?start=&end=`,
 `GET /api/stream` (SSE), `POST /api/sleep/start`, `POST /api/sleep/end`,
-`GET /api/sleep/current`, `GET /api/night/latest`, `POST /api/chat`, `GET /` (frontend).
+`GET /api/sleep/current`, `GET /api/night/latest`, `GET /api/night/{id}`, `GET /api/nights`,
+`POST /api/chat`, `GET /` (frontend).
 
 Implemented (server on `BIND_ADDR`, default `0.0.0.0:8080`):
 - `/api/current`: latest reading + `flags` + `score` {eco2, temp, humidity, total, band}
@@ -156,6 +157,10 @@ Implemented (server on `BIND_ADDR`, default `0.0.0.0:8080`):
   `incomplete`, reading counts, per-metric {avg, min, max, avg_score,
   minutes_out_of_range}, `lowest_metric` {metric, avg_score} (null if all average 100).
   404 if no session has ended.
+- `/api/nights`: every finished session, newest first (up to 366), as summaries
+  {session_id, started_at, ended_at, duration_minutes, short_session, score, band,
+  completeness_pct, incomplete} for the history calendar. `/api/night/{id}`: the full
+  report for one session (404 if unknown or still open, 400 if the id isn't a number).
 - Summary stats also include each metric's `avg_score` (average 0–100 sub-score).
 
 Crates: tokio, axum, sqlx or rusqlite, serde, rmpv/rmp-serde, async-openai, chrono, tracing.

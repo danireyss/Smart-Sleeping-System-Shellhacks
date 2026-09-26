@@ -52,6 +52,11 @@ Shown after sleep mode ends.
 | Incomplete night | Score replaced with "Incomplete night (N% of readings)" |
 | Session under 1 hour | "Too short to be meaningful" note |
 
+## Targets
+
+Each tile's "Target X–Y" comes from the scoring targets; their sources are in
+[REFERENCES.md](REFERENCES.md).
+
 ## Band colors (muted)
 
 | Band | Color |

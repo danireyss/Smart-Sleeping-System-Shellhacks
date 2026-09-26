@@ -105,20 +105,20 @@ fn print_call(kind: &str, method: &str, params: &Value) {
         return;
     }
     match parse_reading(params) {
-        Some((eco2, tvoc, temp_f, humidity)) => println!(
-            "reading: eCO2 (estimated) {eco2} ppm, TVOC {tvoc} ppb, {temp_f:.1} F, {humidity:.1} %RH"
+        Some((eco2, tvoc, temp_f, humidity, uptime_s)) => println!(
+            "reading: eCO2 (estimated) {eco2} ppm, TVOC {tvoc} ppb, {temp_f:.1} F, {humidity:.1} %RH, uptime {uptime_s} s"
         ),
         None => println!("{kind} {method} (unparsed): {params}"),
     }
 }
 
-/// Params are `[eco2, tvoc, temp_f, humidity]` as sent by firmware/sensor_bridge.ino.
-fn parse_reading(params: &Value) -> Option<(i64, i64, f64, f64)> {
+/// Params are `[eco2, tvoc, temp_f, humidity, uptime_s]` as sent by firmware/sensor_bridge.ino.
+fn parse_reading(params: &Value) -> Option<(i64, i64, f64, f64, i64)> {
     let p = params.as_array()?;
-    if p.len() != 4 {
+    if p.len() != 5 {
         return None;
     }
-    Some((p[0].as_i64()?, p[1].as_i64()?, as_f64(&p[2])?, as_f64(&p[3])?))
+    Some((p[0].as_i64()?, p[1].as_i64()?, as_f64(&p[2])?, as_f64(&p[3])?, p[4].as_i64()?))
 }
 
 // rmpv::Value::as_f64 handles F32/F64; also accept integers in case the MCU sends whole numbers.

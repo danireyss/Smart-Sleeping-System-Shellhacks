@@ -14,8 +14,8 @@ use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
 use crate::controllers::AppState;
-use crate::repositories::SqliteReadingRepository;
-use crate::services::{IngestService, ReadingService};
+use crate::repositories::{SqliteReadingRepository, SqliteSessionRepository};
+use crate::services::{IngestService, ReadingService, SleepService};
 
 #[tokio::main]
 async fn main() {
@@ -26,6 +26,13 @@ async fn main() {
     let config = Config::from_env();
     let repo = match SqliteReadingRepository::open(&config.db_path) {
         Ok(repo) => Arc::new(repo),
+        Err(e) => {
+            error!("failed to open database {}: {e}", config.db_path);
+            std::process::exit(1);
+        }
+    };
+    let sessions = match SqliteSessionRepository::open(&config.db_path) {
+        Ok(sessions) => Arc::new(sessions),
         Err(e) => {
             error!("failed to open database {}: {e}", config.db_path);
             std::process::exit(1);
@@ -43,7 +50,11 @@ async fn main() {
         }
     });
 
-    let state = AppState { readings: Arc::new(ReadingService::new(repo)), events };
+    let state = AppState {
+        readings: Arc::new(ReadingService::new(repo.clone())),
+        sleep: Arc::new(SleepService::new(sessions, repo)),
+        events,
+    };
     let listener = match TcpListener::bind(&config.bind_addr).await {
         Ok(listener) => listener,
         Err(e) => {

@@ -1,4 +1,4 @@
-//! GET /api/current and GET /api/summary.
+//! GET /api/current, GET /api/readings, and GET /api/summary.
 
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
@@ -18,44 +18,55 @@ pub async fn current(State(state): State<AppState>) -> Result<Json<ScoredReading
 }
 
 #[derive(Deserialize)]
-pub struct SummaryParams {
+pub struct RangeParams {
     /// RFC 3339, e.g. `2026-09-26T02:00:00Z` (inclusive).
     start: DateTime<Utc>,
     /// RFC 3339 (exclusive).
     end: DateTime<Utc>,
 }
 
-/// Avg/min/max per metric and minutes out of range for `start <= t < end`.
-pub async fn summary(
-    State(state): State<AppState>,
-    params: Result<Query<SummaryParams>, QueryRejection>,
-) -> Result<Json<Summary>, ApiError> {
-    let Query(SummaryParams { start, end }) =
+type RangeQuery = Result<Query<RangeParams>, QueryRejection>;
+
+fn parse_range(params: RangeQuery) -> Result<(DateTime<Utc>, DateTime<Utc>), ApiError> {
+    let Query(RangeParams { start, end }) =
         params.map_err(|e| ApiError::BadRequest(e.body_text()))?;
     if start >= end {
         return Err(ApiError::BadRequest("start must be before end".to_string()));
     }
+    Ok((start, end))
+}
+
+/// Every reading with `start <= t < end`, oldest first, each with its flags and
+/// score (same shape as /api/current). For charts.
+pub async fn readings(
+    State(state): State<AppState>,
+    params: RangeQuery,
+) -> Result<Json<Vec<ScoredReading>>, ApiError> {
+    let (start, end) = parse_range(params)?;
+    Ok(Json(state.readings.readings(start, end).await?))
+}
+
+/// Avg/min/max per metric and minutes out of range for `start <= t < end`.
+pub async fn summary(
+    State(state): State<AppState>,
+    params: RangeQuery,
+) -> Result<Json<Summary>, ApiError> {
+    let (start, end) = parse_range(params)?;
     Ok(Json(state.readings.summary(start, end).await?))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use axum::Router;
     use chrono::{Duration, TimeZone};
     use http_body_util::BodyExt;
     use serde_json::Value;
-    use tokio::sync::broadcast;
     use tower::ServiceExt;
 
-    use crate::controllers::{router, AppState};
+    use crate::controllers::test_support::{app, get};
     use crate::domain::reading::WARM_UP_SECS;
     use crate::domain::{Reading, ScoredReading};
-    use crate::repositories::{ReadingRepository, SqliteReadingRepository};
-    use crate::services::ReadingService;
 
     fn t0() -> chrono::DateTime<chrono::Utc> {
         chrono::Utc.with_ymd_and_hms(2026, 9, 26, 6, 0, 0).unwrap()
@@ -72,36 +83,21 @@ mod tests {
         }
     }
 
-    fn app(readings: &[Reading]) -> (Router, broadcast::Sender<ScoredReading>) {
-        let repo = Arc::new(SqliteReadingRepository::in_memory().unwrap());
-        for r in readings {
-            repo.save(r, &r.flags()).unwrap();
-        }
-        let (events, _) = broadcast::channel(8);
-        let state = AppState { readings: Arc::new(ReadingService::new(repo)), events: events.clone() };
-        (router(state), events)
-    }
-
-    async fn get(app: Router, uri: &str) -> (StatusCode, Value) {
-        let resp = app.oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
-        let status = resp.status();
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
-        (status, serde_json::from_slice(&body).unwrap())
-    }
-
     #[tokio::test]
     async fn current_is_404_without_readings() {
-        let (status, body) = get(app(&[]).0, "/api/current").await;
+        let (status, body) = get(&app(&[]), "/api/current").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], "no readings yet");
     }
 
     #[tokio::test]
     async fn current_returns_latest_with_score() {
-        let (status, body) = get(app(&[reading(0, 68.0), reading(10, 77.0)]).0, "/api/current").await;
+        let app = app(&[reading(0, 68.0), reading(10, 77.0)]);
+        let (status, body) = get(&app, "/api/current").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["received_at"], "2026-09-26T06:00:10Z");
-        assert_eq!(body["eco2_ppm"], 450.0);
+        assert_eq!(body["eco2_ppm"], serde_json::json!(450));
+        assert_eq!(body["tvoc_ppb"], serde_json::json!(5));
         assert_eq!(body["temp_f"], 77.0);
         assert_eq!(body["flags"], serde_json::json!([]));
         assert_eq!(body["score"]["temp"], 30.0);
@@ -112,7 +108,7 @@ mod tests {
     #[tokio::test]
     async fn current_flagged_reading_has_null_score() {
         let warming = Reading { uptime_s: 30, temp_f: None, ..reading(0, 68.0) };
-        let (_, body) = get(app(&[warming]).0, "/api/current").await;
+        let (_, body) = get(&app(&[warming]), "/api/current").await;
         assert_eq!(body["flags"], serde_json::json!(["warm_up", "temp_missing"]));
         assert_eq!(body["temp_f"], Value::Null);
         assert_eq!(body["score"], Value::Null);
@@ -120,26 +116,53 @@ mod tests {
 
     #[tokio::test]
     async fn summary_covers_half_open_range() {
-        let readings = [reading(0, 68.0), reading(60, 77.0), reading(120, 68.0)];
-        let (status, body) = get(
-            app(&readings).0,
+        let readings = [reading(0, 68.0), reading(60, 76.0), reading(120, 68.0)];
+        let (status, body) = get(&app(&readings),
             "/api/summary?start=2026-09-26T06:00:00Z&end=2026-09-26T06:02:00Z",
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["readings"], 2);
         assert_eq!(body["valid_minutes"], 2);
-        assert_eq!(body["temp_f"]["max"], 77.0);
+        assert_eq!(body["temp_f"]["max"], 76.0);
         assert_eq!(body["temp_f"]["minutes_out_of_range"], 1);
-        // (100 + 230 / 3) / 2
-        assert!((body["score"]["avg"].as_f64().unwrap() - 265.0 / 3.0).abs() < 1e-9);
-        assert_eq!(body["score"]["band"], "good");
+        assert_eq!(body["eco2_ppm"]["avg"], serde_json::json!(450));
+        // Totals 100 and (100 + 40 + 100) / 3 = 80
+        assert_eq!(body["score"]["avg"], 90.0);
+        assert_eq!(body["score"]["band"], "great");
+    }
+
+    #[tokio::test]
+    async fn readings_returns_range_with_scores_oldest_first() {
+        let warming = Reading { uptime_s: 30, ..reading(60, 68.0) };
+        let readings = [reading(120, 76.64), warming, reading(0, 68.0), reading(180, 68.0)];
+        let (status, body) = get(&app(&readings),
+            "/api/readings?start=2026-09-26T06:00:00Z&end=2026-09-26T06:03:00Z",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = body.as_array().unwrap();
+        let times: Vec<_> = rows.iter().map(|r| r["received_at"].as_str().unwrap()).collect();
+        assert_eq!(times, ["2026-09-26T06:00:00Z", "2026-09-26T06:01:00Z", "2026-09-26T06:02:00Z"]);
+        assert_eq!(rows[0]["score"]["total"], 100.0);
+        assert_eq!(rows[1]["flags"], serde_json::json!(["warm_up"]));
+        assert_eq!(rows[1]["score"], Value::Null);
+        assert_eq!(rows[2]["temp_f"], 76.6);
+        assert_eq!(rows[2]["score"]["temp"], 33.6);
+        assert_eq!(rows[2]["score"]["total"], 77.9);
+    }
+
+    #[tokio::test]
+    async fn readings_rejects_bad_range() {
+        let uri = "/api/readings?start=2026-09-26T07:00:00Z&end=2026-09-26T06:00:00Z";
+        let (status, _) = get(&app(&[]), uri).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn summary_with_no_readings_has_null_stats() {
         let (status, body) =
-            get(app(&[]).0, "/api/summary?start=2026-09-26T06:00:00Z&end=2026-09-26T07:00:00Z").await;
+            get(&app(&[]), "/api/summary?start=2026-09-26T06:00:00Z&end=2026-09-26T07:00:00Z").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["readings"], 0);
         assert_eq!(body["eco2_ppm"], Value::Null);
@@ -153,7 +176,7 @@ mod tests {
             "/api/summary?start=yesterday&end=2026-09-26T07:00:00Z",
             "/api/summary?start=2026-09-26T07:00:00Z&end=2026-09-26T06:00:00Z",
         ] {
-            let (status, body) = get(app(&[]).0, uri).await;
+            let (status, body) = get(&app(&[]), uri).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
             assert!(body["error"].is_string(), "{uri}");
         }
@@ -161,14 +184,16 @@ mod tests {
 
     #[tokio::test]
     async fn stream_sends_published_readings_as_json_events() {
-        let (app, events) = app(&[]);
+        let app = app(&[]);
         let resp = app
+            .router
+            .clone()
             .oneshot(Request::get("/api/stream").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(resp.headers()["content-type"], "text/event-stream");
 
-        events.send(ScoredReading::from(reading(0, 77.0))).unwrap();
+        app.events.send(ScoredReading::from(reading(0, 77.0))).unwrap();
         let mut body = resp.into_body();
         let frame = body.frame().await.unwrap().unwrap().into_data().unwrap();
         let text = String::from_utf8(frame.to_vec()).unwrap();

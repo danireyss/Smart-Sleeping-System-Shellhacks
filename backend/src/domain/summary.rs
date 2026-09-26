@@ -4,12 +4,17 @@
 //! range" counts distinct UTC minutes with at least one valid reading outside
 //! the metric's 100-point target (eCO₂ > 800 ppm, temp outside 65–70 °F,
 //! RH outside 40–50%), so it is the same at 10 s and 60 s intervals.
+//!
+//! Serialized with API rounding: eCO₂ stats as whole numbers, temperature,
+//! humidity, and scores to 1 decimal. The score band uses the rounded average.
 
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
 
+use super::round::{self, round1, Precision, Rounded};
 use super::scoring::{self, band, Band};
 use super::Reading;
 
@@ -29,20 +34,39 @@ pub struct Summary {
     pub score: Option<ScoreStats>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MetricStats {
     pub avg: f64,
     pub min: f64,
     pub max: f64,
+    /// Average of this metric's 0–100 sub-score.
+    pub avg_score: f64,
     pub minutes_out_of_range: usize,
+    /// How `avg`/`min`/`max` are serialized (eCO₂ whole, others 1 decimal).
+    pub precision: Precision,
+}
+
+impl Serialize for MetricStats {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut st = s.serialize_struct("MetricStats", 5)?;
+        st.serialize_field("avg", &Rounded(self.avg, self.precision))?;
+        st.serialize_field("min", &Rounded(self.min, self.precision))?;
+        st.serialize_field("max", &Rounded(self.max, self.precision))?;
+        st.serialize_field("avg_score", &Rounded(self.avg_score, Precision::Tenths))?;
+        st.serialize_field("minutes_out_of_range", &self.minutes_out_of_range)?;
+        st.end()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ScoreStats {
+    #[serde(serialize_with = "round::tenths")]
     pub avg: f64,
+    #[serde(serialize_with = "round::tenths")]
     pub min: f64,
+    #[serde(serialize_with = "round::tenths")]
     pub max: f64,
-    /// Band of the average score.
+    /// Band of the average score, rounded to 1 decimal.
     pub band: Band,
 }
 
@@ -72,27 +96,28 @@ pub fn summarize(start: DateTime<Utc>, end: DateTime<Utc>, readings: &[Reading])
         readings: readings.len(),
         valid_readings: totals.len(),
         valid_minutes: minutes.len(),
-        eco2_ppm: metric_stats(&eco2),
-        temp_f: metric_stats(&temp),
-        humidity_pct: metric_stats(&humidity),
+        eco2_ppm: metric_stats(&eco2, Precision::Whole),
+        temp_f: metric_stats(&temp, Precision::Tenths),
+        humidity_pct: metric_stats(&humidity, Precision::Tenths),
         score: min_avg_max(totals.iter().copied()).map(|(min, avg, max)| ScoreStats {
             avg,
             min,
             max,
-            band: band(avg),
+            band: band(round1(avg)),
         }),
     }
 }
 
-fn metric_stats(samples: &[(i64, f64, f64)]) -> Option<MetricStats> {
+fn metric_stats(samples: &[(i64, f64, f64)], precision: Precision) -> Option<MetricStats> {
     let (min, avg, max) = min_avg_max(samples.iter().map(|&(_, value, _)| value))?;
+    let (_, avg_score, _) = min_avg_max(samples.iter().map(|&(_, _, sub_score)| sub_score))?;
     let minutes_out_of_range = samples
         .iter()
         .filter(|&&(_, _, sub_score)| sub_score < 100.0)
         .map(|&(minute, _, _)| minute)
         .collect::<HashSet<_>>()
         .len();
-    Some(MetricStats { avg, min, max, minutes_out_of_range })
+    Some(MetricStats { avg, min, max, avg_score, minutes_out_of_range, precision })
 }
 
 fn min_avg_max(values: impl Iterator<Item = f64>) -> Option<(f64, f64, f64)> {
@@ -157,7 +182,9 @@ mod tests {
 
         let temp = s.temp_f.unwrap();
         assert_close(temp.avg, 70.25);
+        assert_close(temp.avg_score, 87.5);
         assert_eq!(temp.minutes_out_of_range, 1);
+        assert_close(eco2.avg_score, 75.0);
         assert_eq!(s.humidity_pct.unwrap().minutes_out_of_range, 0);
 
         let score = s.score.unwrap();
@@ -188,6 +215,20 @@ mod tests {
         assert_eq!(s.valid_minutes, 2);
         assert_eq!(s.temp_f.unwrap().minutes_out_of_range, 2);
         assert_eq!(s.eco2_ppm.unwrap().minutes_out_of_range, 0);
+    }
+
+    #[test]
+    fn serializes_with_api_rounding() {
+        // Totals: (100 + 33.6 + 100) / 3 -> 77.9 and (100 + 32 + 100) / 3 -> 77.3.
+        let readings = [at(0, 477.4, 76.64, 49.8), at(60, 490.0, 76.8, 50.0)];
+        let s = summarize(start(), start() + Duration::hours(1), &readings);
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["eco2_ppm"]["avg"], serde_json::json!(484)); // 483.7
+        assert!(json["eco2_ppm"]["min"].is_i64());
+        assert_eq!(json["temp_f"]["avg"], serde_json::json!(76.7)); // 76.72
+        assert_eq!(json["humidity_pct"]["avg"], serde_json::json!(49.9));
+        assert_eq!(json["temp_f"]["avg_score"], serde_json::json!(32.8));
+        assert_eq!(json["score"]["avg"], serde_json::json!(77.6));
     }
 
     #[test]

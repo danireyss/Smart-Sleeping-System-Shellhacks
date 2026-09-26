@@ -148,8 +148,8 @@ mod tests {
         assert_eq!(rows[1]["flags"], serde_json::json!(["warm_up"]));
         assert_eq!(rows[1]["score"], Value::Null);
         assert_eq!(rows[2]["temp_f"], 76.6);
-        assert_eq!(rows[2]["score"]["temp"], 33.6);
-        assert_eq!(rows[2]["score"]["total"], 77.9);
+        assert_eq!(rows[2]["score"]["temp"], 34.0); // scored from the shown 76.6
+        assert_eq!(rows[2]["score"]["total"], 78.0);
     }
 
     #[tokio::test]

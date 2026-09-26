@@ -1,6 +1,7 @@
 //! Statistics over a time range of readings. Pure functions, no I/O.
 //!
-//! Only valid (unflagged) readings count toward the statistics. "Minutes out of
+//! Only valid (unflagged) readings count toward the statistics, which use the
+//! values at API precision (`Reading::rounded`), like the scores. "Minutes out of
 //! range" counts distinct UTC minutes with at least one valid reading outside
 //! the metric's 100-point target (eCO₂ > 800 ppm, temp outside 65–70 °F,
 //! RH outside 40–50%), so it is the same at 10 s and 60 s intervals.
@@ -81,6 +82,7 @@ pub fn summarize(start: DateTime<Utc>, end: DateTime<Utc>, readings: &[Reading])
 
     for r in readings {
         let Some(s) = scoring::score(r) else { continue };
+        let r = r.rounded();
         let (Some(t), Some(h)) = (r.temp_f, r.humidity_pct) else { continue };
         let minute = r.received_at.timestamp().div_euclid(60);
         minutes.insert(minute);
@@ -219,16 +221,27 @@ mod tests {
 
     #[test]
     fn serializes_with_api_rounding() {
-        // Totals: (100 + 33.6 + 100) / 3 -> 77.9 and (100 + 32 + 100) / 3 -> 77.3.
-        let readings = [at(0, 477.4, 76.64, 49.8), at(60, 490.0, 76.8, 50.0)];
+        // Shown values 477 / 76.6 and 490 / 77.2. Totals: (100 + 34 + 100) / 3 = 78.0
+        // and (100 + 28 + 100) / 3 = 76.0.
+        let readings = [at(0, 477.4, 76.64, 49.8), at(60, 490.0, 77.2, 50.0)];
         let s = summarize(start(), start() + Duration::hours(1), &readings);
         let json = serde_json::to_value(&s).unwrap();
-        assert_eq!(json["eco2_ppm"]["avg"], serde_json::json!(484)); // 483.7
+        assert_eq!(json["eco2_ppm"]["avg"], serde_json::json!(484)); // 483.5 -> 484
         assert!(json["eco2_ppm"]["min"].is_i64());
-        assert_eq!(json["temp_f"]["avg"], serde_json::json!(76.7)); // 76.72
+        assert_eq!(json["temp_f"]["avg"], serde_json::json!(76.9));
         assert_eq!(json["humidity_pct"]["avg"], serde_json::json!(49.9));
-        assert_eq!(json["temp_f"]["avg_score"], serde_json::json!(32.8));
-        assert_eq!(json["score"]["avg"], serde_json::json!(77.6));
+        assert_eq!(json["temp_f"]["avg_score"], serde_json::json!(31.0));
+        assert_eq!(json["score"]["avg"], serde_json::json!(77.0));
+    }
+
+    #[test]
+    fn out_of_range_uses_shown_values() {
+        // 70.04 °F is shown as 70.0: on target. 70.06 is shown as 70.1: out of range.
+        let readings = [at(0, 600.0, 70.04, 45.0), at(60, 600.0, 70.06, 45.0)];
+        let s = summarize(start(), start() + Duration::hours(1), &readings);
+        let temp = s.temp_f.unwrap();
+        assert_eq!(temp.minutes_out_of_range, 1);
+        assert_eq!((temp.min, temp.max), (70.0, 70.1));
     }
 
     #[test]

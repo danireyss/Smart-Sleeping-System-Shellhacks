@@ -4,7 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 
-use super::round;
+use super::round::{self, round1};
 
 /// CCS811 needs ~20 minutes after power-on before eCO₂ is meaningful.
 pub const WARM_UP_SECS: u64 = 1200;
@@ -65,23 +65,38 @@ impl Serialize for Flag {
 }
 
 impl Reading {
-    /// Reasons this reading should be excluded from scoring. Empty means valid.
+    /// The reading at API precision: eCO₂ and TVOC whole, temperature and humidity
+    /// to 1 decimal. Flags, scores, and statistics use these values, so they always
+    /// match the numbers shown (79.0 °F scores exactly 10.0, not 10.2 from 78.98).
+    pub fn rounded(&self) -> Reading {
+        Reading {
+            eco2_ppm: self.eco2_ppm.round(),
+            tvoc_ppb: self.tvoc_ppb.round(),
+            temp_f: self.temp_f.map(round1),
+            humidity_pct: self.humidity_pct.map(round1),
+            ..self.clone()
+        }
+    }
+
+    /// Reasons this reading should be excluded from scoring, judged on the rounded
+    /// values. Empty means valid.
     pub fn flags(&self) -> Vec<Flag> {
+        let r = self.rounded();
         let mut flags = Vec::new();
-        if self.uptime_s < WARM_UP_SECS {
+        if r.uptime_s < WARM_UP_SECS {
             flags.push(Flag::WarmUp);
         }
-        if self.eco2_ppm == 0.0 {
+        if r.eco2_ppm == 0.0 {
             flags.push(Flag::Eco2Zero);
-        } else if !in_range(self.eco2_ppm, ECO2_RANGE_PPM) {
+        } else if !in_range(r.eco2_ppm, ECO2_RANGE_PPM) {
             flags.push(Flag::Eco2OutOfRange);
         }
-        match self.temp_f {
+        match r.temp_f {
             None => flags.push(Flag::TempMissing),
             Some(t) if !in_range(t, TEMP_RANGE_F) => flags.push(Flag::TempOutOfRange),
             Some(_) => {}
         }
-        match self.humidity_pct {
+        match r.humidity_pct {
             None => flags.push(Flag::HumidityMissing),
             Some(h) if !in_range(h, HUMIDITY_RANGE_PCT) => flags.push(Flag::HumidityOutOfRange),
             Some(_) => {}
@@ -135,6 +150,32 @@ mod tests {
             let r = Reading { eco2_ppm: bad, ..reading() };
             assert_eq!(r.flags(), vec![Flag::Eco2OutOfRange]);
         }
+    }
+
+    #[test]
+    fn ranges_are_judged_on_rounded_values() {
+        // 120.04 °F is shown as 120.0, which is in range.
+        assert!(Reading { temp_f: Some(120.04), ..reading() }.flags().is_empty());
+        let r = Reading { temp_f: Some(120.06), ..reading() }; // shown as 120.1
+        assert_eq!(r.flags(), vec![Flag::TempOutOfRange]);
+        assert!(Reading { humidity_pct: Some(100.04), ..reading() }.flags().is_empty());
+        assert!(Reading { eco2_ppm: 399.6, ..reading() }.flags().is_empty()); // shown as 400
+        assert_eq!(Reading { eco2_ppm: 0.4, ..reading() }.flags(), vec![Flag::Eco2Zero]);
+    }
+
+    #[test]
+    fn rounded_matches_api_precision() {
+        let r = Reading {
+            eco2_ppm: 477.4,
+            tvoc_ppb: 10.6,
+            temp_f: Some(78.98),
+            humidity_pct: Some(49.7999992370605),
+            ..reading()
+        }
+        .rounded();
+        assert_eq!((r.eco2_ppm, r.tvoc_ppb), (477.0, 11.0));
+        assert_eq!((r.temp_f, r.humidity_pct), (Some(79.0), Some(49.8)));
+        assert_eq!(Reading { temp_f: None, ..reading() }.rounded().temp_f, None);
     }
 
     #[test]

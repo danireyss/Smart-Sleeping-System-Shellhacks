@@ -154,13 +154,13 @@ mod tests {
         let r = night_report(1, start(), end, &every_minute(480, 76.64));
         assert_eq!(r.duration_minutes, 480);
         assert!(!r.short_session);
-        assert_eq!(r.score, Some(77.9)); // (100 + 33.6 + 100) / 3
+        assert_eq!(r.score, Some(78.0)); // 76.64 shown as 76.6: (100 + 34 + 100) / 3
         assert_eq!(r.band, Some(Band::Fair));
         assert_eq!(r.completeness_pct, 100.0);
         assert!(!r.incomplete);
         assert_eq!(r.valid_minutes, 480);
         assert_eq!(r.temp_f.unwrap().minutes_out_of_range, 480);
-        assert_eq!(r.lowest_metric, Some(LowestMetric { metric: "temp", avg_score: 33.6 }));
+        assert_eq!(r.lowest_metric, Some(LowestMetric { metric: "temp", avg_score: 34.0 }));
     }
 
     #[test]
@@ -231,11 +231,11 @@ mod tests {
         let r = night_report(7, start(), start() + Duration::hours(8), &every_minute(480, 76.64));
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!(json["session_id"], 7);
-        assert_eq!(json["score"], serde_json::json!(77.9));
+        assert_eq!(json["score"], serde_json::json!(78.0));
         assert_eq!(json["band"], "fair");
         assert_eq!(json["completeness_pct"], serde_json::json!(100.0));
         assert_eq!(json["eco2_ppm"]["avg"], serde_json::json!(600));
         assert_eq!(json["temp_f"]["avg"], serde_json::json!(76.6));
-        assert_eq!(json["lowest_metric"], serde_json::json!({"metric": "temp", "avg_score": 33.6}));
+        assert_eq!(json["lowest_metric"], serde_json::json!({"metric": "temp", "avg_score": 34.0}));
     }
 }

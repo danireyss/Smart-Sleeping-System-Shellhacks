@@ -14,7 +14,7 @@
 
 #define DHT_POWER 7
 #define DHT_DATA  2
-#define SEND_INTERVAL_MS 10000   // 60000 in production
+#define SEND_INTERVAL_MS 60000   // 10000 for quick testing
 
 DHT dht(DHT_DATA, DHT11);
 Adafruit_CCS811 ccs;

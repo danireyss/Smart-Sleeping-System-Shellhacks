@@ -39,8 +39,9 @@ results. Scores the **room, not the person** — no health data.
   span of one ended session. At most one session is open at a time.
 - **Rounding at serialization.** eCO₂ and TVOC as integers; temperature, humidity, and
   all scores to 1 decimal, in every API response and SSE event, so the dashboard, the
-  agent, and the grounding check see the same numbers. Sub-scores are rounded first;
-  the total and band come from the rounded values.
+  agent, and the grounding check see the same numbers. Flags, sub-scores, and stats are
+  computed from the rounded reading (`Reading::rounded`), so a shown 79.0 °F scores exactly
+  10.0. Sub-scores are rounded first; the total and band come from the rounded values.
 
 ## Hardware
 

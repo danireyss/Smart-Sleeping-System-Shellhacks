@@ -9,6 +9,9 @@
 //! Minute score = average of the three sub-scores. Readings arrive once a minute
 //! in production, so a reading's score is its minute's score.
 //!
+//! Scores are computed from the reading at API precision (`Reading::rounded`), so
+//! a shown 79.0 °F always scores 10.0.
+//!
 //! Reported scores are rounded to 1 decimal: each sub-score is rounded, the total
 //! is the rounded average of the rounded sub-scores, and the band comes from that
 //! rounded total, so the band always matches the number shown.
@@ -98,10 +101,12 @@ pub fn band(score: f64) -> Band {
 }
 
 /// Score for one reading, or `None` if the reading is flagged (excluded from scoring).
+/// Uses the rounded values, so the score matches the numbers shown.
 pub fn score(reading: &Reading) -> Option<MinuteScore> {
     if !reading.flags().is_empty() {
         return None;
     }
+    let reading = reading.rounded();
     // Unflagged readings always have temperature and humidity.
     let (Some(temp_f), Some(humidity_pct)) = (reading.temp_f, reading.humidity_pct) else {
         return None;
@@ -208,10 +213,10 @@ mod tests {
         assert_close(board.total, 74.3);
         assert_eq!(board.band, Band::Fair);
 
-        // 76.64 °F: temp 33.6 (not 33.599999999999994), total 77.9
+        // 76.64 °F is shown as 76.6: temp 34.0, total (100 + 34 + 100) / 3 = 78.0
         let s = score(&reading(477.0, 76.64, 49.8)).unwrap();
-        assert_eq!(s.temp, 33.6);
-        assert_eq!(s.total, 77.9);
+        assert_eq!(s.temp, 34.0);
+        assert_eq!(s.total, 78.0);
 
         let perfect = score(&reading(600.0, 68.0, 45.0)).unwrap();
         assert_close(perfect.total, 100.0);
@@ -219,11 +224,23 @@ mod tests {
     }
 
     #[test]
+    fn scores_the_shown_values() {
+        // 78.98 °F is shown as 79.0, so the temp sub-score is 10.0 (not 10.2).
+        let s = score(&reading(400.0, 78.98, 48.6)).unwrap();
+        assert_eq!(s.temp, 10.0);
+        assert_eq!(s.total, 70.0); // (100 + 10 + 100) / 3
+        // 800.4 ppm is shown as 800, which is on target.
+        assert_eq!(score(&reading(800.4, 68.0, 45.0)).unwrap().eco2, 100.0);
+        // 50.04% RH is shown as 50.0, which is on target.
+        assert_eq!(score(&reading(600.0, 68.0, 50.04)).unwrap().humidity, 100.0);
+    }
+
+    #[test]
     fn band_comes_from_the_rounded_total() {
-        // 56.02% RH -> humidity 69.9. Unrounded total (100 + 100 + 69.9) / 3 = 89.97
+        // 1161 ppm -> eCO2 69.9. Unrounded total (69.9 + 100 + 100) / 3 = 89.97
         // would be Good, but it is shown as 90.0, so the band must be Great.
-        let s = score(&reading(600.0, 68.0, 56.02)).unwrap();
-        assert_eq!(s.humidity, 69.9);
+        let s = score(&reading(1161.0, 68.0, 45.0)).unwrap();
+        assert_eq!(s.eco2, 69.9);
         assert_eq!(s.total, 90.0);
         assert_eq!(s.band, Band::Great);
     }

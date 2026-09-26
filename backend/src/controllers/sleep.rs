@@ -121,11 +121,11 @@ mod tests {
         assert_eq!(night["valid_minutes"], 60);
         assert_eq!(night["completeness_pct"], 100.0);
         assert_eq!(night["incomplete"], false);
-        assert_eq!(night["score"], 77.9);
+        assert_eq!(night["score"], 78.0);
         assert_eq!(night["band"], "fair");
         assert_eq!(night["eco2_ppm"]["avg"], json!(477));
         assert_eq!(night["temp_f"]["avg"], 76.6);
         assert_eq!(night["temp_f"]["minutes_out_of_range"], 60);
-        assert_eq!(night["lowest_metric"], json!({"metric": "temp", "avg_score": 33.6}));
+        assert_eq!(night["lowest_metric"], json!({"metric": "temp", "avg_score": 34.0}));
     }
 }

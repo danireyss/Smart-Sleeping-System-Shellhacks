@@ -12,13 +12,13 @@ use tokio::sync::broadcast;
 use tower::ServiceExt;
 
 use super::{router, AppState};
-use crate::domain::{Reading, ScoredReading};
+use crate::domain::{LiveEvent, Reading};
 use crate::repositories::{ReadingRepository, SqliteReadingRepository, SqliteSessionRepository};
 use crate::services::{AgentService, ReadingService, SleepService};
 
 pub struct TestApp {
     pub router: Router,
-    pub events: broadcast::Sender<ScoredReading>,
+    pub events: broadcast::Sender<LiveEvent>,
     pub sessions: Arc<SqliteSessionRepository>,
 }
 
@@ -38,7 +38,7 @@ fn build(readings: &[Reading], chat_token: Option<Arc<str>>) -> TestApp {
     let sessions = Arc::new(SqliteSessionRepository::in_memory().unwrap());
     let (events, _) = broadcast::channel(8);
     let readings = Arc::new(ReadingService::new(repo.clone()));
-    let sleep = Arc::new(SleepService::new(sessions.clone(), repo));
+    let sleep = Arc::new(SleepService::new(sessions.clone(), repo, events.clone()));
     let state = AppState {
         agent: Arc::new(AgentService::new(None, readings.clone(), sleep.clone())),
         chat_token,

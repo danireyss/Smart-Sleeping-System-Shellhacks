@@ -74,7 +74,7 @@ mod tests {
 
     use crate::controllers::test_support::{app, get};
     use crate::domain::reading::WARM_UP_SECS;
-    use crate::domain::{Reading, ScoredReading};
+    use crate::domain::{LiveEvent, Reading, ScoredReading};
 
     fn t0() -> chrono::DateTime<chrono::Utc> {
         chrono::Utc.with_ymd_and_hms(2026, 9, 26, 6, 0, 0).unwrap()
@@ -208,7 +208,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.headers()["content-type"], "text/event-stream");
 
-        app.events.send(ScoredReading::from(reading(0, 77.0))).unwrap();
+        app.events.send(LiveEvent::Reading(ScoredReading::from(reading(0, 77.0)))).unwrap();
         let mut body = resp.into_body();
         let frame = body.frame().await.unwrap().unwrap().into_data().unwrap();
         let text = String::from_utf8(frame.to_vec()).unwrap();

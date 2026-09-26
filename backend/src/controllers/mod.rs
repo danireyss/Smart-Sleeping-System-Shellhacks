@@ -19,7 +19,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 use tracing::error;
 
-use crate::domain::ScoredReading;
+use crate::domain::LiveEvent;
 use crate::services::{AgentService, ReadingService, ServiceError, SleepService};
 
 #[derive(Clone)]
@@ -30,7 +30,7 @@ pub struct AppState {
     /// Shared token required by POST /api/chat, if set (it spends the LLM quota).
     pub chat_token: Option<Arc<str>>,
     /// Every stored reading, published by the ingest service.
-    pub events: broadcast::Sender<ScoredReading>,
+    pub events: broadcast::Sender<LiveEvent>,
 }
 
 pub fn router(state: AppState) -> Router {

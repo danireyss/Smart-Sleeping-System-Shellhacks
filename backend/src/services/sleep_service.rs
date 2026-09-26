@@ -1,35 +1,56 @@
 //! Sleep sessions and nightly reports. Repository calls are blocking, so they
-//! run on tokio's blocking pool.
+//! run on tokio's blocking pool. Every start and end (from the device LCD or the
+//! API) is published as a `LiveEvent::Sleep` for GET /api/stream.
 
 use std::sync::Arc;
 
 use chrono::{SubsecRound, Utc};
+use tokio::sync::broadcast;
 use tokio::task::spawn_blocking;
 
 use super::ServiceError;
 use crate::domain::sleep::{night_report, NightReport, SleepSession, StartOutcome};
+use crate::domain::LiveEvent;
 use crate::repositories::{ReadingRepository, SessionRepository};
 
 pub struct SleepService {
     sessions: Arc<dyn SessionRepository>,
     readings: Arc<dyn ReadingRepository>,
+    events: broadcast::Sender<LiveEvent>,
 }
 
 impl SleepService {
-    pub fn new(sessions: Arc<dyn SessionRepository>, readings: Arc<dyn ReadingRepository>) -> Self {
-        Self { sessions, readings }
+    pub fn new(
+        sessions: Arc<dyn SessionRepository>,
+        readings: Arc<dyn ReadingRepository>,
+        events: broadcast::Sender<LiveEvent>,
+    ) -> Self {
+        Self { sessions, readings, events }
     }
 
     /// Starts a session now, unless one is already open.
     pub async fn start(&self) -> Result<StartOutcome, ServiceError> {
         let sessions = self.sessions.clone();
-        spawn_blocking(move || sessions.start(Utc::now().trunc_subsecs(3))).await?
+        let outcome = spawn_blocking(move || sessions.start(Utc::now().trunc_subsecs(3))).await??;
+        if let StartOutcome::Started(session) = &outcome {
+            self.publish(session);
+        }
+        Ok(outcome)
     }
 
     /// Ends the open session now. `None` if no session is open.
     pub async fn end(&self) -> Result<Option<SleepSession>, ServiceError> {
         let sessions = self.sessions.clone();
-        spawn_blocking(move || sessions.end(Utc::now().trunc_subsecs(3))).await?
+        let ended = spawn_blocking(move || sessions.end(Utc::now().trunc_subsecs(3))).await??;
+        if let Some(session) = &ended {
+            self.publish(session);
+        }
+        Ok(ended)
+    }
+
+    fn publish(&self, session: &SleepSession) {
+        // An error only means nobody is subscribed right now.
+        let _ = self.events.send(LiveEvent::Sleep(session.clone()));
     }
 
     /// The open session, if any.

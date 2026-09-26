@@ -363,7 +363,7 @@ mod tests {
         sessions.start(t(2) + Duration::minutes(30)).unwrap();
         sessions.end(t(3) + Duration::minutes(20)).unwrap();
         let readings = Arc::new(ReadingService::new(repo.clone()));
-        let sleep = Arc::new(SleepService::new(sessions, repo));
+        let sleep = Arc::new(SleepService::new(sessions, repo, tokio::sync::broadcast::channel(8).0));
         AgentService::new(model, readings, sleep)
     }
 

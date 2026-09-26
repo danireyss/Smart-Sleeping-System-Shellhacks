@@ -6,6 +6,7 @@
 
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -38,10 +39,7 @@ pub struct SqliteReadingRepository {
 
 impl SqliteReadingRepository {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RepoError> {
-        let conn = Connection::open(path)?;
-        // WAL lets the API read while ingest writes.
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        Self::init(conn)
+        Self::init(open_connection(path)?)
     }
 
     #[cfg(test)]
@@ -94,8 +92,22 @@ impl ReadingRepository for SqliteReadingRepository {
     }
 }
 
-fn timestamp(t: DateTime<Utc>) -> String {
+/// Opens a file database in WAL mode (the API reads while ingest writes) with a
+/// busy timeout (the readings and sessions repositories each hold a connection).
+pub(super) fn open_connection(path: impl AsRef<Path>) -> Result<Connection, RepoError> {
+    let conn = Connection::open(path)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.busy_timeout(Duration::from_secs(5))?;
+    Ok(conn)
+}
+
+/// Fixed-width UTC text, so string order matches time order.
+pub(super) fn timestamp(t: DateTime<Utc>) -> String {
     t.format(TIMESTAMP_FORMAT).to_string()
+}
+
+pub(super) fn parse_timestamp(s: &str) -> Result<DateTime<Utc>, RepoError> {
+    Ok(DateTime::parse_from_rfc3339(s)?.with_timezone(&Utc))
 }
 
 type RawRow = (String, f64, f64, Option<f64>, Option<f64>, i64);
@@ -108,7 +120,7 @@ fn to_reading(
     (received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s): RawRow,
 ) -> Result<Reading, RepoError> {
     Ok(Reading {
-        received_at: DateTime::parse_from_rfc3339(&received_at)?.with_timezone(&Utc),
+        received_at: parse_timestamp(&received_at)?,
         eco2_ppm,
         tvoc_ppb,
         temp_f,

@@ -29,6 +29,17 @@ impl ReadingService {
         Ok(latest.map(ScoredReading::from))
     }
 
+    /// Readings with `start <= received_at < end`, oldest first, with flags and scores.
+    pub async fn readings(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<ScoredReading>, ServiceError> {
+        let repo = self.repo.clone();
+        let readings = spawn_blocking(move || repo.range(start, end)).await??;
+        Ok(readings.into_iter().map(ScoredReading::from).collect())
+    }
+
     /// Statistics for readings with `start <= received_at < end`.
     pub async fn summary(
         &self,

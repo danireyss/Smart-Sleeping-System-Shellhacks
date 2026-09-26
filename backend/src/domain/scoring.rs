@@ -8,9 +8,14 @@
 //!
 //! Minute score = average of the three sub-scores. Readings arrive once a minute
 //! in production, so a reading's score is its minute's score.
+//!
+//! Reported scores are rounded to 1 decimal: each sub-score is rounded, the total
+//! is the rounded average of the rounded sub-scores, and the band comes from that
+//! rounded total, so the band always matches the number shown.
 
 use serde::Serialize;
 
+use super::round::{self, round1};
 use super::{Flag, Reading};
 
 const ECO2_FULL_PPM: f64 = 800.0;
@@ -33,9 +38,13 @@ pub enum Band {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct MinuteScore {
+    #[serde(serialize_with = "round::tenths")]
     pub eco2: f64,
+    #[serde(serialize_with = "round::tenths")]
     pub temp: f64,
+    #[serde(serialize_with = "round::tenths")]
     pub humidity: f64,
+    #[serde(serialize_with = "round::tenths")]
     pub total: f64,
     pub band: Band,
 }
@@ -97,10 +106,10 @@ pub fn score(reading: &Reading) -> Option<MinuteScore> {
     let (Some(temp_f), Some(humidity_pct)) = (reading.temp_f, reading.humidity_pct) else {
         return None;
     };
-    let eco2 = eco2_score(reading.eco2_ppm);
-    let temp = temp_score(temp_f);
-    let humidity = humidity_score(humidity_pct);
-    let total = (eco2 + temp + humidity) / 3.0;
+    let eco2 = round1(eco2_score(reading.eco2_ppm));
+    let temp = round1(temp_score(temp_f));
+    let humidity = round1(humidity_score(humidity_pct));
+    let total = round1((eco2 + temp + humidity) / 3.0);
     Some(MinuteScore { eco2, temp, humidity, total, band: band(total) })
 }
 
@@ -196,12 +205,27 @@ mod tests {
         // Board conditions: (100 + 23 + 100) / 3 ≈ 74.3
         let board = score(&reading(410.0, 77.7, 49.0)).unwrap();
         assert_close(board.temp, 23.0);
-        assert_close(board.total, 223.0 / 3.0);
+        assert_close(board.total, 74.3);
         assert_eq!(board.band, Band::Fair);
+
+        // 76.64 °F: temp 33.6 (not 33.599999999999994), total 77.9
+        let s = score(&reading(477.0, 76.64, 49.8)).unwrap();
+        assert_eq!(s.temp, 33.6);
+        assert_eq!(s.total, 77.9);
 
         let perfect = score(&reading(600.0, 68.0, 45.0)).unwrap();
         assert_close(perfect.total, 100.0);
         assert_eq!(perfect.band, Band::Great);
+    }
+
+    #[test]
+    fn band_comes_from_the_rounded_total() {
+        // 56.02% RH -> humidity 69.9. Unrounded total (100 + 100 + 69.9) / 3 = 89.97
+        // would be Good, but it is shown as 90.0, so the band must be Great.
+        let s = score(&reading(600.0, 68.0, 56.02)).unwrap();
+        assert_eq!(s.humidity, 69.9);
+        assert_eq!(s.total, 90.0);
+        assert_eq!(s.band, Band::Great);
     }
 
     #[test]

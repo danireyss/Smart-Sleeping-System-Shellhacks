@@ -34,6 +34,13 @@ results. Scores the **room, not the person** — no health data.
 - **Deployment:** everything runs locally on the UNO Q; only the AI call goes to the cloud.
   Demo over phone hotspot / travel router. Optional Cloudflare Tunnel for judges.
 - **No policy engine / actuator** unless the core pipeline is done (stretch goal).
+- **Sleep sessions replace the fixed sleep window.** No bedtime/wake-time setting: the
+  user starts and ends a session (`POST /api/sleep/start` / `end`), and a night is the
+  span of one ended session. At most one session is open at a time.
+- **Rounding at serialization.** eCO₂ and TVOC as integers; temperature, humidity, and
+  all scores to 1 decimal, in every API response and SSE event, so the dashboard, the
+  agent, and the grounding check see the same numbers. Sub-scores are rounded first;
+  the total and band come from the rounded values.
 
 ## Hardware
 
@@ -107,8 +114,9 @@ socket at `/var/run/arduino-router.sock` (confirmed with `sudo ss -xlp | grep -i
 Flow: bridge.rs → ingest_service (validate, store, score) → Tokio broadcast channel →
 SSE clients. Agent tools call reading_service (same path as the dashboard).
 
-API: `GET /api/current`, `GET /api/summary?start=&end=`, `GET /api/night/:date`,
-`GET /api/stream` (SSE), `POST /api/chat`, `GET /` (frontend).
+API: `GET /api/current`, `GET /api/readings?start=&end=`, `GET /api/summary?start=&end=`,
+`GET /api/stream` (SSE), `POST /api/sleep/start`, `POST /api/sleep/end`,
+`GET /api/sleep/current`, `GET /api/night/latest`, `POST /api/chat`, `GET /` (frontend).
 
 Implemented (server on `BIND_ADDR`, default `0.0.0.0:8080`):
 - `/api/current`: latest reading + `flags` + `score` {eco2, temp, humidity, total, band}
@@ -117,8 +125,19 @@ Implemented (server on `BIND_ADDR`, default `0.0.0.0:8080`):
   per metric {avg, min, max, minutes_out_of_range} over valid readings, plus score
   {avg, min, max, band}. Out of range = outside the 100-point target, counted as distinct
   minutes. Use `Z` or URL-encode `+` offsets. 400 `{"error"}` on bad params.
+- `/api/readings?start=…Z&end=…Z`: every reading in `[start, end)`, oldest first, same
+  shape as `/api/current` (for charts). Same params/errors as `/api/summary`.
 - `/api/stream`: SSE `event: reading`, data = same JSON as `/api/current`; 15 s keep-alives.
   Ingest publishes only readings that were saved.
+- `POST /api/sleep/start`: 201 + session `{id, started_at, ended_at: null}`; 409 if one is
+  open. `POST /api/sleep/end`: 200 + closed session; 409 if none is open.
+  `GET /api/sleep/current`: the open session or `null`. Times are server UTC.
+- `/api/night/latest`: report for the most recently ended session: started/ended_at,
+  `duration_minutes`, `short_session` (< 1 h), `score` + `band`, `completeness_pct` +
+  `incomplete`, reading counts, per-metric {avg, min, max, avg_score,
+  minutes_out_of_range}, `lowest_metric` {metric, avg_score} (null if all average 100).
+  404 if no session has ended.
+- Summary stats also include each metric's `avg_score` (average 0–100 sub-score).
 
 Crates: tokio, axum, sqlx or rusqlite, serde, rmpv/rmp-serde, async-openai, chrono, tracing.
 
@@ -131,7 +150,7 @@ developing, `--release` for the overnight run and demo.
 ## Scoring
 
 Per-minute score = average of three 0–100 sub-scores; nightly score = average of minute
-scores in the sleep window (user-set bedtime/wake time). Exclude flagged/missing minutes;
+scores in the sleep session (user starts/ends it). Exclude flagged/missing minutes;
 a night with <60% valid minutes is "incomplete".
 
 | Metric | 100 points | Outside | 0 points at |
@@ -142,9 +161,10 @@ a night with <60% valid minutes is "incomplete".
 
 Bands: Great 90–100, Good 80–89, Fair 70–79, Poor < 70 (thresholds 90/80/70, so 89.9 is Good).
 A reading's score is its minute score. Nightly score = average of the scored (unflagged)
-readings in the window (equals averaging minutes, since the interval is constant).
-"Incomplete" = distinct minutes with ≥ 1 valid reading ÷ window length in minutes < 60%,
-so it works at both the 10 s dev and 60 s production intervals.
+readings in `[started_at, ended_at)` of the session (equals averaging minutes, since the
+interval is constant). "Incomplete" = distinct minutes with ≥ 1 valid reading ÷ session
+length in minutes (rounded, at least 1) < 60%, so it works at both the 10 s dev and 60 s
+production intervals. Sessions under 1 hour are marked `short_session`.
 Flag (exclude) readings when: uptime_s < 1200 (CCS811 warm-up), eco2 == 0, eCO₂ outside
 400–8192 ppm, temp missing or outside 32–120 °F, RH missing or outside 0–100%.
 Readings are timestamped in UTC by the backend on receipt (the MCU has no clock).
@@ -169,4 +189,5 @@ Readings are timestamped in UTC by the backend on receipt (the MCU has no clock)
 
 Full requirements: SRS v2 (Hackathon Edition) doc —
 https://claude.ai/code/artifact/f56e63c7-d1ca-4afb-8e42-485098ef1979
-(Where it still says "embedded Rust on the MCU", the hybrid decision above wins.)
+(Where it still says "embedded Rust on the MCU" or describes a fixed bedtime/wake sleep
+window, the decisions above win.)

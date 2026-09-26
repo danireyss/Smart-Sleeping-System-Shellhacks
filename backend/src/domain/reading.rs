@@ -4,6 +4,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 
+use super::round;
+
 /// CCS811 needs ~20 minutes after power-on before eCO₂ is meaningful.
 pub const WARM_UP_SECS: u64 = 1200;
 
@@ -16,11 +18,15 @@ pub struct Reading {
     /// When the backend received the reading (UTC). The MCU has no clock.
     pub received_at: DateTime<Utc>,
     /// Estimated CO₂ from the CCS811 (eCO₂), ppm.
+    #[serde(serialize_with = "round::whole")]
     pub eco2_ppm: f64,
+    #[serde(serialize_with = "round::whole")]
     pub tvoc_ppb: f64,
     /// `None` when the DHT11 read failed (the MCU sends NaN).
+    #[serde(serialize_with = "round::tenths_opt")]
     pub temp_f: Option<f64>,
     /// `None` when the DHT11 read failed (the MCU sends NaN).
+    #[serde(serialize_with = "round::tenths_opt")]
     pub humidity_pct: Option<f64>,
     /// Seconds since the sketch started, used for CCS811 warm-up.
     pub uptime_s: u64,

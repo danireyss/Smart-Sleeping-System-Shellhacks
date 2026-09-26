@@ -1,3 +1,4 @@
 pub mod reading;
+pub mod scoring;
 
-pub use reading::Reading;
+pub use reading::{Flag, Reading};

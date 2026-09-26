@@ -2,6 +2,7 @@
 //! Pure types, no I/O.
 
 use chrono::{DateTime, Utc};
+use serde::{Serialize, Serializer};
 
 /// CCS811 needs ~20 minutes after power-on before eCO₂ is meaningful.
 pub const WARM_UP_SECS: u64 = 1200;
@@ -10,7 +11,7 @@ pub const ECO2_RANGE_PPM: (f64, f64) = (400.0, 8192.0);
 pub const HUMIDITY_RANGE_PCT: (f64, f64) = (0.0, 100.0);
 pub const TEMP_RANGE_F: (f64, f64) = (32.0, 120.0);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Reading {
     /// When the backend received the reading (UTC). The MCU has no clock.
     pub received_at: DateTime<Utc>,
@@ -48,6 +49,12 @@ impl Flag {
             Flag::HumidityMissing => "humidity_missing",
             Flag::HumidityOutOfRange => "humidity_out_of_range",
         }
+    }
+}
+
+impl Serialize for Flag {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
     }
 }
 

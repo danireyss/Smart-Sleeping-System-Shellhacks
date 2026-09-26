@@ -19,7 +19,7 @@ use std::os::unix::net::UnixStream;
 use std::thread;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{SubsecRound, Utc};
 use rmpv::Value;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -120,7 +120,8 @@ fn session(path: &str, tx: &mpsc::Sender<Reading>) -> io::Result<SessionEnd> {
     }
 }
 
-/// Parses `[eco2, tvoc, temp_f, humidity, uptime_s]`, timestamped now (UTC).
+/// Parses `[eco2, tvoc, temp_f, humidity, uptime_s]`, timestamped now (UTC, to the
+/// millisecond, matching storage precision).
 fn parse_reading(params: &Value) -> Option<Reading> {
     let p = params.as_array()?;
     if p.len() != 5 {
@@ -131,7 +132,7 @@ fn parse_reading(params: &Value) -> Option<Reading> {
         return None;
     }
     Some(Reading {
-        received_at: Utc::now(),
+        received_at: Utc::now().trunc_subsecs(3),
         eco2_ppm: number(&p[0])?,
         tvoc_ppb: number(&p[1])?,
         temp_f: number(&p[2]).filter(|v| !v.is_nan()),

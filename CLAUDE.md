@@ -110,6 +110,16 @@ SSE clients. Agent tools call reading_service (same path as the dashboard).
 API: `GET /api/current`, `GET /api/summary?start=&end=`, `GET /api/night/:date`,
 `GET /api/stream` (SSE), `POST /api/chat`, `GET /` (frontend).
 
+Implemented (server on `BIND_ADDR`, default `0.0.0.0:8080`):
+- `/api/current`: latest reading + `flags` + `score` {eco2, temp, humidity, total, band}
+  (`score` null when flagged); 404 `{"error"}` if no readings.
+- `/api/summary?start=…Z&end=…Z`: RFC 3339, `[start, end)`. Counts, `valid_minutes`, and
+  per metric {avg, min, max, minutes_out_of_range} over valid readings, plus score
+  {avg, min, max, band}. Out of range = outside the 100-point target, counted as distinct
+  minutes. Use `Z` or URL-encode `+` offsets. 400 `{"error"}` on bad params.
+- `/api/stream`: SSE `event: reading`, data = same JSON as `/api/current`; 15 s keep-alives.
+  Ingest publishes only readings that were saved.
+
 Crates: tokio, axum, sqlx or rusqlite, serde, rmpv/rmp-serde, async-openai, chrono, tracing.
 
 Build order: bridge + ingest printing readings → storage → scoring with tests →

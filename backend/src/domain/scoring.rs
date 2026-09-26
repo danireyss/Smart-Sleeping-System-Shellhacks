@@ -9,7 +9,9 @@
 //! Minute score = average of the three sub-scores. Readings arrive once a minute
 //! in production, so a reading's score is its minute's score.
 
-use super::Reading;
+use serde::Serialize;
+
+use super::{Flag, Reading};
 
 const ECO2_FULL_PPM: f64 = 800.0;
 const ECO2_ZERO_PPM: f64 = 2000.0;
@@ -20,7 +22,8 @@ const TEMP_POINTS_PER_F: f64 = 10.0;
 const HUMIDITY_TARGET_PCT: (f64, f64) = (40.0, 50.0);
 const HUMIDITY_POINTS_PER_PCT: f64 = 5.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Band {
     Great,
     Good,
@@ -28,13 +31,31 @@ pub enum Band {
     Poor,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct MinuteScore {
     pub eco2: f64,
     pub temp: f64,
     pub humidity: f64,
     pub total: f64,
     pub band: Band,
+}
+
+/// A reading with its flags and score (`None` when flagged). This is what the
+/// API returns and what the live stream sends.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ScoredReading {
+    #[serde(flatten)]
+    pub reading: Reading,
+    pub flags: Vec<Flag>,
+    pub score: Option<MinuteScore>,
+}
+
+impl From<Reading> for ScoredReading {
+    fn from(reading: Reading) -> Self {
+        let flags = reading.flags();
+        let score = score(&reading);
+        Self { reading, flags, score }
+    }
 }
 
 /// 100 at ≤ 800 ppm, 0 at ≥ 2,000 ppm, linear in between.

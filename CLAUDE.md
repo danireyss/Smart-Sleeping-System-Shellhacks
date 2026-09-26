@@ -187,6 +187,8 @@ Readings are timestamped in UTC by the backend on receipt (the MCU has no clock)
 - Demo: dashboard running → sanitizer spikes eCO₂ → score drops → ask agent why and show
   its tool calls → mention sensor-agnostic design (SCD41 is a one-driver upgrade).
 
+Frontend design (screens, states, band colors): [docs/DESIGN.md](docs/DESIGN.md).
+
 Full requirements: SRS v2 (Hackathon Edition) doc —
 https://claude.ai/code/artifact/f56e63c7-d1ca-4afb-8e42-485098ef1979
 (Where it still says "embedded Rust on the MCU" or describes a fixed bedtime/wake sleep

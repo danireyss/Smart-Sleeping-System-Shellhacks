@@ -1,13 +1,15 @@
-//! GET /api/current, GET /api/readings, and GET /api/summary.
+//! GET /api/current, GET /api/readings, GET /api/summary, and GET /api/targets.
 
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::{ApiError, AppState};
 use crate::domain::summary::Summary;
+use crate::domain::targets;
 use crate::domain::ScoredReading;
 
 /// Latest reading with its flags, sub-scores, score, and band (`score` is null
@@ -15,6 +17,12 @@ use crate::domain::ScoredReading;
 pub async fn current(State(state): State<AppState>) -> Result<Json<ScoredReading>, ApiError> {
     let current = state.readings.current().await?;
     current.map(Json).ok_or(ApiError::NotFound("no readings yet"))
+}
+
+/// Target ranges, bands, thresholds, and sources: the same data the agent's
+/// get_targets tool returns, so the UI and the agent can't disagree.
+pub async fn targets() -> Json<Value> {
+    Json(targets::targets())
 }
 
 #[derive(Deserialize)]
@@ -157,6 +165,13 @@ mod tests {
         let uri = "/api/readings?start=2026-09-26T07:00:00Z&end=2026-09-26T06:00:00Z";
         let (status, _) = get(&app(&[]), uri).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn targets_match_the_agent_tool() {
+        let (status, body) = get(&app(&[]), "/api/targets").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, crate::domain::targets::targets());
     }
 
     #[tokio::test]

@@ -86,3 +86,17 @@ pub async fn send_text(
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     (status, String::from_utf8(bytes.to_vec()).unwrap())
 }
+
+/// GETs a path and returns the status, content type, and body text.
+pub async fn get_text(app: &TestApp, uri: &str) -> (StatusCode, String, String) {
+    let resp = app.router.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (status, content_type, String::from_utf8_lossy(&bytes).into_owned())
+}

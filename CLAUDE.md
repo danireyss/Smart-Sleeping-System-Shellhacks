@@ -34,6 +34,10 @@ results. Scores the **room, not the person** — no health data.
 - **Deployment:** everything runs locally on the UNO Q; only the AI call goes to the cloud.
   Demo over phone hotspot / travel router. Optional Cloudflare Tunnel for judges.
 - **No policy engine / actuator** unless the core pipeline is done (stretch goal).
+- **Frontend:** Vite + React + TypeScript + Tailwind v4 + shadcn/ui + zod + Recharts in
+  `frontend/`. Built on a dev machine (`npm run build`); `frontend/dist` is committed and
+  embedded in the backend binary (rust-embed), so the board needs no Node and the UI
+  works offline. amicro animations only sparingly, never in sleep mode.
 - **Sleep sessions replace the fixed sleep window.** No bedtime/wake-time setting: the
   user starts and ends a session (`POST /api/sleep/start` / `end`), and a night is the
   span of one ended session. At most one session is open at a time.
@@ -209,7 +213,14 @@ Implemented in `services/agent_service.rs` (loop, tools, system prompt),
 - Demo: dashboard running → sanitizer spikes eCO₂ → score drops → ask agent why and show
   its tool calls → mention sensor-agnostic design (SCD41 is a one-driver upgrade).
 
-Frontend design (screens, states, band colors): [docs/DESIGN.md](docs/DESIGN.md).
+Frontend design (screens, states, band colors): [docs/DESIGN.md](docs/DESIGN.md), Figma
+file `u2jXvMjUHIPUtmDqzfo17A` (frames home-live-view, sleep-mode-active,
+sleep-morning-summary, history-morning-report). Implementation notes: `frontend/README.md`.
+UI rules: numbers shown exactly at API precision (eCO₂ whole, others 1 decimal); tile
+badges show range status ("In range" / "6.6 °F high"); sleep mode is true black with no
+motion; no health claims in any copy. Routes `/`, `/sleep`, `/last-night` (the backend
+serves index.html for them). `GET /api/targets` gives the UI the same targets as the agent.
+**After changing the frontend, run `npm run build` in `frontend/` and commit `dist/`.**
 Sources for the scoring targets: [docs/REFERENCES.md](docs/REFERENCES.md) (the agent cites
 their author-year labels via get_targets).
 

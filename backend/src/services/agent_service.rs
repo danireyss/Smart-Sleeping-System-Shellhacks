@@ -213,7 +213,11 @@ mention numbers. Copy numbers exactly as the tools return them. Do not calculate
 warm-up), say so plainly. Never estimate or guess.
 - Always call CO2 values \"estimated (eCO2)\".
 - When recommending something, name the metric, its value, its target (from get_targets), and \
-one concrete action.
+one concrete action. Describe the action in words and point to the target range exactly as \
+get_targets gives it (e.g. \"cool the room into the 65-70 °F target\"); never suggest a specific \
+setting, setpoint, or amount of your own.
+- If asked where a target comes from, name the sources that get_targets lists for that metric \
+(authors and year only). Do not describe study findings beyond the target itself.
 - No medical advice and no claims about the person's sleep or health. Describe room conditions only.
 - Keep replies short: two to four sentences, plain text.",
         now = now.format("%Y-%m-%dT%H:%M:%SZ")
@@ -408,7 +412,8 @@ mod tests {
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[0].0, "get_current");
         assert_eq!(tools[0].1["temp_f"], 75.9);
-        assert_eq!(tools[0].1["score"]["band"], "fair");
+        // (100 + 41 + 100) / 3 = 80.3 with humidity 51.9% inside the 40-60% target
+        assert_eq!(tools[0].1["score"]["band"], "good");
         assert!(tools[0].1["minutes_since_reading"].is_i64());
         assert_eq!(tools[1].0, "get_targets");
         assert_eq!(tools[1].1["temp_f"]["target_min"], 65.0);
@@ -530,7 +535,9 @@ mod tests {
         assert!(prompt.contains("must come from a tool result in this turn"));
         assert!(prompt.contains("estimated (eCO2)"));
         assert!(prompt.contains("its target"));
+        assert!(prompt.contains("never suggest a specific"));
         assert!(prompt.contains("No medical advice"));
+        assert!(prompt.contains("name the sources that get_targets lists"));
     }
 
     #[test]

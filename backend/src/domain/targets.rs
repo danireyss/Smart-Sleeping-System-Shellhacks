@@ -1,5 +1,9 @@
 //! The scoring targets and thresholds, as reported by the agent's get_targets
 //! tool. Built from the same constants the scoring uses. Pure, no I/O.
+//!
+//! `sources` name the studies behind each target (full citations and what each
+//! supports: docs/REFERENCES.md). Only author-year labels go to the model; the
+//! years become "known" numbers for the grounding check, which is acceptable.
 
 use serde_json::{json, Value};
 
@@ -18,6 +22,7 @@ pub fn targets() -> Value {
             "note": "estimated CO2 (eCO2) from a VOC sensor",
             "full_points_at_or_below": ECO2_FULL_PPM,
             "zero_points_at_or_above": ECO2_ZERO_PPM,
+            "sources": ["Fan et al., 2022 (window/door opening)", "Fan et al., 2022 (ventilation and temperature)", "Kang et al., 2024", "Yan et al., 2024"],
         },
         "temp_f": {
             "target_min": temp_min,
@@ -25,6 +30,7 @@ pub fn targets() -> Value {
             "points_lost_per_degree_outside": TEMP_POINTS_PER_F,
             "zero_points_at_or_below": temp_min - 100.0 / TEMP_POINTS_PER_F,
             "zero_points_at_or_above": temp_max + 100.0 / TEMP_POINTS_PER_F,
+            "sources": ["Fan et al., 2022 (ventilation and temperature)", "Okamoto-Mizuno et al., 1999"],
         },
         "humidity_pct": {
             "target_min": rh_min,
@@ -32,6 +38,7 @@ pub fn targets() -> Value {
             "points_lost_per_percent_outside": HUMIDITY_POINTS_PER_PCT,
             "zero_points_at_or_below": rh_min - 100.0 / HUMIDITY_POINTS_PER_PCT,
             "zero_points_at_or_above": rh_max + 100.0 / HUMIDITY_POINTS_PER_PCT,
+            "sources": ["Okamoto-Mizuno et al., 1999"],
         },
         "score": "average of the three 0-100 sub-scores",
         "bands": { "great_min": 90, "good_min": 80, "fair_min": 70, "poor": "below 70" },
@@ -55,7 +62,11 @@ mod tests {
         assert_eq!(t["temp_f"]["zero_points_at_or_below"], 55.0);
         assert_eq!(t["temp_f"]["zero_points_at_or_above"], 80.0);
         assert_eq!(t["humidity_pct"]["zero_points_at_or_below"], 20.0);
-        assert_eq!(t["humidity_pct"]["zero_points_at_or_above"], 70.0);
+        assert_eq!(t["humidity_pct"]["target_min"], 40.0);
+        assert_eq!(t["humidity_pct"]["target_max"], 60.0);
+        assert_eq!(t["humidity_pct"]["zero_points_at_or_above"], 80.0);
+        assert_eq!(t["eco2_ppm"]["sources"][2], "Kang et al., 2024");
+        assert_eq!(t["humidity_pct"]["sources"][0], "Okamoto-Mizuno et al., 1999");
         assert_eq!(t["incomplete_night_below_pct"], 60.0);
         assert_eq!(t["short_session_under_minutes"], 60);
         assert_eq!(t["sensor_warm_up_minutes"], 20);

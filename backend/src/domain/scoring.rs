@@ -4,7 +4,9 @@
 //! | ----------- | ----------- | ------------------ | ------------------ |
 //! | eCO₂        | ≤ 800 ppm   | linear             | ≥ 2,000 ppm        |
 //! | Temperature | 65–70 °F    | −10 per °F outside | ≤ 55 or ≥ 80 °F    |
-//! | Humidity    | 40–50% RH   | −5 per % outside   | ≤ 20% or ≥ 70%     |
+//! | Humidity    | 40–60% RH   | −5 per % outside   | ≤ 20% or ≥ 80%     |
+//!
+//! Sources for these targets: docs/REFERENCES.md.
 //!
 //! Minute score = average of the three sub-scores. Readings arrive once a minute
 //! in production, so a reading's score is its minute's score.
@@ -27,7 +29,7 @@ pub const ECO2_ZERO_PPM: f64 = 2000.0;
 pub const TEMP_TARGET_F: (f64, f64) = (65.0, 70.0);
 pub const TEMP_POINTS_PER_F: f64 = 10.0;
 
-pub const HUMIDITY_TARGET_PCT: (f64, f64) = (40.0, 50.0);
+pub const HUMIDITY_TARGET_PCT: (f64, f64) = (40.0, 60.0);
 pub const HUMIDITY_POINTS_PER_PCT: f64 = 5.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -81,7 +83,7 @@ pub fn temp_score(temp_f: f64) -> f64 {
     target_score(temp_f, TEMP_TARGET_F, TEMP_POINTS_PER_F)
 }
 
-/// 100 at 40–50% RH, minus 5 per % outside (0 at ≤ 20% or ≥ 70%).
+/// 100 at 40–60% RH, minus 5 per % outside (0 at ≤ 20% or ≥ 80%).
 pub fn humidity_score(humidity_pct: f64) -> f64 {
     target_score(humidity_pct, HUMIDITY_TARGET_PCT, HUMIDITY_POINTS_PER_PCT)
 }
@@ -177,11 +179,13 @@ mod tests {
     #[test]
     fn humidity_edges_and_slope() {
         assert_close(humidity_score(40.0), 100.0);
-        assert_close(humidity_score(50.0), 100.0);
+        assert_close(humidity_score(51.9), 100.0); // last night's average
+        assert_close(humidity_score(60.0), 100.0);
         assert_close(humidity_score(39.0), 95.0);
-        assert_close(humidity_score(55.0), 75.0);
+        assert_close(humidity_score(65.0), 75.0);
+        assert_close(humidity_score(70.0), 50.0);
         assert_close(humidity_score(20.0), 0.0);
-        assert_close(humidity_score(70.0), 0.0);
+        assert_close(humidity_score(80.0), 0.0);
         assert_close(humidity_score(10.0), 0.0);
         assert_close(humidity_score(90.0), 0.0);
     }

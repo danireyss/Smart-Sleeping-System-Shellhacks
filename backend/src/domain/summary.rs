@@ -4,7 +4,7 @@
 //! values at API precision (`Reading::rounded`), like the scores. "Minutes out of
 //! range" counts distinct UTC minutes with at least one valid reading outside
 //! the metric's 100-point target (eCO₂ > 800 ppm, temp outside 65–70 °F,
-//! RH outside 40–50%), so it is the same at 10 s and 60 s intervals.
+//! RH outside 40–60%), so it is the same at 10 s and 60 s intervals.
 //!
 //! Serialized with API rounding: eCO₂ stats as whole numbers, temperature,
 //! humidity, and scores to 1 decimal. The score band uses the rounded average.

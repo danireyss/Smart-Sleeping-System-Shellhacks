@@ -158,7 +158,7 @@ a night with <60% valid minutes is "incomplete".
 | --- | --- | --- | --- |
 | eCO₂ | ≤ 800 ppm | linear | ≥ 2,000 ppm |
 | Temperature | 65–70 °F | −10 per °F outside | ≤ 55 or ≥ 80 °F |
-| Humidity | 40–50% RH (placeholder) | −5 per % outside | ≤ 20% or ≥ 70% |
+| Humidity | 40–60% RH | −5 per % outside | ≤ 20% or ≥ 80% |
 
 Bands: Great 90–100, Good 80–89, Fair 70–79, Poor < 70 (thresholds 90/80/70, so 89.9 is Good).
 A reading's score is its minute score. Nightly score = average of the scored (unflagged)
@@ -206,6 +206,8 @@ Implemented in `services/agent_service.rs` (loop, tools, system prompt),
   its tool calls → mention sensor-agnostic design (SCD41 is a one-driver upgrade).
 
 Frontend design (screens, states, band colors): [docs/DESIGN.md](docs/DESIGN.md).
+Sources for the scoring targets: [docs/REFERENCES.md](docs/REFERENCES.md) (the agent cites
+their author-year labels via get_targets).
 
 Full requirements: SRS v2 (Hackathon Edition) doc —
 https://claude.ai/code/artifact/f56e63c7-d1ca-4afb-8e42-485098ef1979

@@ -1,40 +1,72 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { ChatTile } from '@/components/ChatTile'
 import { MetricCharts } from '@/components/MetricCharts'
+import { NightCalendar } from '@/components/NightCalendar'
 import { NightScoreBlock } from '@/components/NightScore'
-import { useLatestNight, useReadings, useTargets } from '@/hooks/data'
-import type { NightReport, Targets } from '@/lib/api'
-import { nightHeadline, statsKey } from '@/lib/night'
+import { useNight, useNights, useReadings, useTargets } from '@/hooks/data'
+import type { NightReport, NightSummary, Targets } from '@/lib/api'
+import { nightDate, nightHeadline, statsKey } from '@/lib/night'
 import { METRICS, longDate, timeOfDay, withUnit } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { useRouter } from '@/router'
+
+/** ?night=<id> selects a past night; without it, the latest night is shown. */
+function nightFromUrl(): number | null {
+  const id = Number(new URLSearchParams(window.location.search).get('night'))
+  return Number.isInteger(id) && id > 0 ? id : null
+}
 
 export function LastNight() {
-  const night = useLatestNight()
+  const [selectedId, setSelectedId] = useState<number | null>(nightFromUrl)
+  const nights = useNights()
+  const night = useNight(selectedId)
   const { targets } = useTargets()
-  const { navigate } = useRouter()
 
-  if (night === undefined) return null
+  function select(id: number) {
+    // The latest night is the default view, so it gets the plain URL.
+    const isLatest = nights?.[0]?.session_id === id
+    setSelectedId(isLatest ? null : id)
+    window.history.replaceState(null, '', isLatest ? '/last-night' : `/last-night?night=${id}`)
+  }
+
+  if (nights === undefined || night === undefined) return null
+  // The report comes from its own endpoint, so it still shows if the history can't load.
   if (night === null) {
     return (
       <main className="flex min-h-[calc(100vh-72px)] flex-col items-center justify-center gap-4 p-20 text-center">
         <h1 className="text-[22px] font-medium text-text">No finished sleep session yet</h1>
-        <p className="text-[13px] text-text-muted">Start sleep mode at bedtime and end it in the morning to see a report here.</p>
-        <button
-          type="button"
-          onClick={() => navigate('/sleep')}
-          className="rounded-full bg-great px-8 py-3 text-sm font-semibold text-bg hover:opacity-90"
-        >
-          Go to sleep mode
-        </button>
+        <p className="text-[13px] text-text-muted">
+          Tap Sleep on the device screen at bedtime and hold it to end sleep mode in the morning. Each night then
+          shows up here, colored by its score.
+        </p>
       </main>
     )
   }
-  return <Report night={night} targets={targets} />
+  return (
+    <Report
+      night={night}
+      targets={targets}
+      nights={nights}
+      isLatest={nights === null || night.session_id === nights[0]?.session_id}
+      onSelect={select}
+    />
+  )
 }
 
-function Report({ night, targets }: { night: NightReport; targets: Targets | null }) {
+function Report({
+  night,
+  targets,
+  nights,
+  isLatest,
+  onSelect,
+}: {
+  night: NightReport
+  targets: Targets | null
+  /** null when the history couldn't be loaded. */
+  nights: NightSummary[] | null
+  isLatest: boolean
+  onSelect: (id: number) => void
+}) {
   const start = useMemo(() => new Date(night.started_at), [night.started_at])
   const end = useMemo(() => new Date(night.ended_at), [night.ended_at])
   const readings = useReadings(start, end)
@@ -46,7 +78,8 @@ function Report({ night, targets }: { night: NightReport; targets: Targets | nul
         <section className="flex items-center justify-between gap-8 rounded-2xl bg-surface p-8">
           <div className="flex min-w-0 flex-col gap-2">
             <p className="text-[11px] font-medium tracking-[1.5px] text-text-muted uppercase">
-              Last night · {longDate(night.ended_at)}
+              {isLatest ? 'Last night · ' : 'Night of '}
+              {longDate(nightDateIso(night.started_at))}
             </p>
             <h1 className="text-lg text-text">{title}</h1>
             {detail && <p className="text-[15px] leading-[1.6] text-text-muted">{detail}</p>}
@@ -119,7 +152,22 @@ function Report({ night, targets }: { night: NightReport; targets: Targets | nul
         </div>
       </div>
 
-      <ChatTile className="w-[440px] shrink-0 self-start" />
+      <div className="flex w-[440px] shrink-0 flex-col gap-8 self-start">
+        {nights ? (
+          <NightCalendar nights={nights} selectedId={night.session_id} onSelect={onSelect} />
+        ) : (
+          <p className="rounded-2xl border border-fair/50 bg-fair/[0.07] p-5 text-sm text-text">
+            Couldn't load the night history (GET /api/nights). The backend may be an older version:
+            rebuild and restart it.
+          </p>
+        )}
+        <ChatTile />
+      </div>
     </main>
   )
+}
+
+/** Noon of the night's calendar date, for formatting it as a date. */
+function nightDateIso(startedAt: string): string {
+  return `${nightDate(startedAt)}T12:00:00`
 }

@@ -63,6 +63,20 @@ export const NightReport = z.object({
 })
 export type NightReport = z.infer<typeof NightReport>
 
+/** One finished night for the history calendar. */
+export const NightSummary = z.object({
+  session_id: z.number(),
+  started_at: z.string(),
+  ended_at: z.string(),
+  duration_minutes: z.number(),
+  short_session: z.boolean(),
+  score: z.number().nullable(),
+  band: Band.nullable(),
+  completeness_pct: z.number(),
+  incomplete: z.boolean(),
+})
+export type NightSummary = z.infer<typeof NightSummary>
+
 const Range = z.object({ target_min: z.number(), target_max: z.number() })
 export const Targets = z.object({
   eco2_ppm: z.object({ full_points_at_or_below: z.number(), zero_points_at_or_above: z.number() }),
@@ -111,3 +125,16 @@ export async function getLatestNight(): Promise<NightReport | null> {
     throw e
   }
 }
+
+/** Report for one night, or null if it doesn't exist (or hasn't ended). */
+export async function getNight(id: number): Promise<NightReport | null> {
+  try {
+    return await getJson(`/api/night/${id}`, NightReport)
+  } catch (e) {
+    if (e instanceof NotFound) return null
+    throw e
+  }
+}
+
+/** Every finished night, most recent first. */
+export const getNights = () => getJson('/api/nights', z.array(NightSummary))

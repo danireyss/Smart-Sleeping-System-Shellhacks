@@ -45,6 +45,14 @@ results. Scores the **room, not the person** — no health data.
   starts it, a 1.5 s long-press ends it, and the backlight dims while it's on. The web UI
   only shows sleep state (no start/end buttons). `POST /api/sleep/start|end` stay as a
   curl fallback.
+- **Light and sound from a USB webcam** (Linux side): `adapters/camera.rs` locks exposure
+  with `v4l2-ctl` and grabs a 32×24 gray frame with `ffmpeg` each minute → light level
+  0–100; `adapters/microphone.rs` streams `arecord` → per-minute Leq/Lmax (dBFS +
+  `SOUND_CAL_DB`). `AmbientService` keeps the latest values; ingest attaches them to each
+  reading if < 120 s old. Enable with `CAMERA_DEVICE` / `MIC_DEVICE` (see `.env.example`;
+  board needs `ffmpeg v4l-utils alsa-utils`, and App Lab's Webcam app must not hold the
+  camera). Calibrate: note light levels with lights off / lamp / ceiling light; set
+  `SOUND_CAL_DB` so a steady sound matches a phone sound-meter app.
 - **Device protocol** (`domain/device.rs`): the sketch calls the backend with
   `Bridge.call(method).result(value)`: `sleep_start` → `true`, `sleep_end` → `false`,
   `sleep_state` → bool, `score` → latest total or `-1`. The bridge registers these next to
@@ -182,6 +190,14 @@ a night with <60% valid minutes is "incomplete".
 | eCO₂ | ≤ 800 ppm | linear | ≥ 2,000 ppm |
 | Temperature | 65–70 °F | −10 per °F outside | ≤ 55 or ≥ 80 °F |
 | Humidity | 40–60% RH | −5 per % outside | ≤ 20% or ≥ 80% |
+| Light* (webcam) | ≤ 5 (relative 0–100) | linear | ≥ 40 |
+| Sound* (webcam) | ≤ 30 dB Leq | linear | ≥ 55 dB |
+
+*Estimated, only when a webcam provides them. The minute score averages the available
+sub-scores, so readings without webcam data score exactly as before. Light thresholds
+are placeholders to calibrate. Noise event = a run of minutes with a peak (Lmax) above
+45 dB (WHO). Frames and audio are reduced to these numbers in memory and never stored,
+served, or given to the agent.
 
 Bands: Great 90–100, Good 80–89, Fair 70–79, Poor < 70 (thresholds 90/80/70, so 89.9 is Good).
 A reading's score is its minute score. Nightly score = average of the scored (unflagged)

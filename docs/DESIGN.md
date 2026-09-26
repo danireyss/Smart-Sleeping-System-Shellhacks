@@ -16,6 +16,15 @@ Target: a laptop for the demo. Dark theme throughout.
 - When sleep mode is on, a banner: "Sleep mode is on — started 11:42 PM on the device".
 - A chat tile on the right.
 
+## Light and sound (webcam)
+
+- Light and Sound tiles, charts, and Last night cards appear only when a webcam is
+  providing data; both are labeled "estimated" (light is a relative 0–100 level, sound
+  an estimated dB).
+- Last night: the sound card shows "N noise events above 45 dB" with their times, and
+  the sound chart marks each event with a dashed line.
+- Nothing from the camera is ever shown except these two numbers.
+
 ## Sleep mode
 
 Started and ended on the device's touch screen, not in the web UI.

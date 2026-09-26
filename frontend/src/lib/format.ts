@@ -6,11 +6,15 @@ import type { Band, ScoredReading, Targets } from './api'
 export const tenths = (v: number) => v.toFixed(1)
 export const whole = (v: number) => Math.round(v).toString()
 
-export type MetricKey = 'eco2' | 'temp' | 'humidity'
+export type MetricKey = 'eco2' | 'temp' | 'humidity' | 'light' | 'sound'
 
 export interface Metric {
   key: MetricKey
   label: string
+  /** Shown with an "estimated" tag (eCO₂ from VOCs; light and sound from the webcam). */
+  estimated: boolean
+  /** Only shown when there is data (the webcam metrics). */
+  optional: boolean
   short: string
   unit: string
   /** Suffix after the number ("ppm" with a space, "%" without in compact spots). */
@@ -26,6 +30,8 @@ export const METRICS: Metric[] = [
   {
     key: 'eco2',
     label: 'eCO₂',
+    estimated: true,
+    optional: false,
     short: 'eCO₂',
     unit: 'ppm',
     format: whole,
@@ -36,6 +42,8 @@ export const METRICS: Metric[] = [
   {
     key: 'temp',
     label: 'Temperature',
+    estimated: false,
+    optional: false,
     short: 'Temp',
     unit: '°F',
     format: tenths,
@@ -46,6 +54,8 @@ export const METRICS: Metric[] = [
   {
     key: 'humidity',
     label: 'Humidity',
+    estimated: false,
+    optional: false,
     short: 'Humidity',
     unit: '%',
     format: tenths,
@@ -56,14 +66,47 @@ export const METRICS: Metric[] = [
       hi: t.humidity_pct.zero_points_at_or_above,
     }),
   },
+  {
+    // Relative brightness from the webcam, 0 (dark) to 100 (white): not lux.
+    key: 'light',
+    label: 'Light',
+    estimated: true,
+    optional: true,
+    short: 'Light',
+    unit: '/100',
+    format: tenths,
+    value: (r) => r.light_level ?? null,
+    target: (t) => ({ min: null, max: t.light_level?.full_points_at_or_below ?? 5 }),
+    scale: (t) => ({ lo: 0, hi: t.light_level?.zero_points_at_or_above ?? 40 }),
+  },
+  {
+    // Leq over the minute from the webcam microphone, calibrated: estimated dB.
+    key: 'sound',
+    label: 'Sound',
+    estimated: true,
+    optional: true,
+    short: 'Sound',
+    unit: 'dB',
+    format: tenths,
+    value: (r) => r.sound_db ?? null,
+    target: (t) => ({ min: null, max: t.sound_db?.full_points_at_or_below ?? 30 }),
+    scale: (t) => ({ lo: 20, hi: t.sound_db?.zero_points_at_or_above ?? 55 }),
+  },
 ]
 
-export const withUnit = (m: Metric, v: number) => `${m.format(v)} ${m.unit}`
+/** The metrics to show: the three sensors always, light/sound only when some reading has them. */
+export function visibleMetrics(readings: (ScoredReading | null | undefined)[]): Metric[] {
+  return METRICS.filter((m) => !m.optional || readings.some((r) => r && m.value(r) !== null))
+}
+
+// "/100" reads best attached to the number ("3.5/100"); other units take a space.
+export const withUnit = (m: Metric, v: number) => `${m.format(v)}${m.unit.startsWith('/') ? '' : ' '}${m.unit}`
 
 export function targetText(m: Metric, t: Targets): string {
   const { min, max } = m.target(t)
   const f = (v: number) => (m.key === 'eco2' ? whole(v) : String(v))
-  return min === null ? `Target ≤ ${f(max)} ${m.unit}` : `Target ${f(min)}–${f(max)} ${m.unit}`
+  const sep = m.unit.startsWith('/') ? '' : ' '
+  return min === null ? `Target ≤ ${f(max)}${sep}${m.unit}` : `Target ${f(min)}–${f(max)}${sep}${m.unit}`
 }
 
 /** How far a value sits outside its target: null when in range. */
@@ -81,7 +124,7 @@ export function rangeStatus(m: Metric, t: Targets, v: number): string {
   const off = offTarget(m, t, v)
   if (!off) return 'In range'
   const gap = m.key === 'eco2' ? whole(off.by) : tenths(off.by)
-  return `${gap} ${m.unit} ${off.dir}`
+  return `${gap}${m.unit.startsWith('/') ? '' : ' '}${m.unit} ${off.dir}`
 }
 
 export const BAND_LABEL: Record<Band, string> = {

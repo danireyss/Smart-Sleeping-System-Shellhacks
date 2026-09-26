@@ -1,21 +1,25 @@
-import { Line, LineChart, ReferenceArea, XAxis, YAxis } from 'recharts'
+import { Line, LineChart, ReferenceArea, ReferenceLine, XAxis, YAxis } from 'recharts'
 
 import { ChartContainer, ChartTooltip, type ChartConfig } from '@/components/ui/chart'
 import type { ScoredReading, Targets } from '@/lib/api'
-import { BAND_VAR, METRICS, bandOf, offTarget, withUnit, type Metric } from '@/lib/format'
+import { BAND_VAR, bandOf, offTarget, visibleMetrics, withUnit, type Metric, type MetricKey } from '@/lib/format'
 
 interface Point {
   t: number
   v: number | null
 }
 
-/** Three stacked charts (eCO₂, temperature, humidity), each with its target band shaded. */
+/**
+ * Stacked charts, one per metric (eCO₂, temperature, humidity, plus light and
+ * sound when the webcam provided them), each with its target band shaded.
+ */
 export function MetricCharts({
   readings,
   targets,
   start,
   end,
   variant,
+  markers,
 }: {
   readings: ScoredReading[]
   targets: Targets
@@ -23,12 +27,15 @@ export function MetricCharts({
   end: Date
   /** "compact": home sparklines with the latest value; "full": larger with a time axis. */
   variant: 'compact' | 'full'
+  /** Vertical marker lines per metric (e.g. noise events on the sound chart), as ISO times. */
+  markers?: Partial<Record<MetricKey, string[]>>
 }) {
   // Flagged readings (warm-up, bad values) aren't plotted, matching the scores.
   const valid = readings.filter((r) => r.score !== null)
+  const metrics = visibleMetrics(valid)
   return (
     <div className="flex flex-col gap-4">
-      {METRICS.map((m, i) => (
+      {metrics.map((m, i) => (
         <MetricChart
           key={m.key}
           metric={m}
@@ -38,7 +45,8 @@ export function MetricCharts({
           start={start}
           end={end}
           variant={variant}
-          showAxis={variant === 'full' && i === METRICS.length - 1}
+          showAxis={variant === 'full' && i === metrics.length - 1}
+          markers={(markers?.[m.key] ?? []).map((t) => new Date(t).getTime())}
         />
       ))}
     </div>
@@ -54,6 +62,7 @@ function MetricChart({
   end,
   variant,
   showAxis,
+  markers,
 }: {
   metric: Metric
   points: Point[]
@@ -64,6 +73,7 @@ function MetricChart({
   end: Date
   variant: 'compact' | 'full'
   showAxis: boolean
+  markers: number[]
 }) {
   const values = points.map((p) => p.v).filter((v): v is number => v !== null)
   const last = values.at(-1) ?? null
@@ -103,6 +113,9 @@ function MetricChart({
           />
           <YAxis hide domain={[lo - pad, hi + pad]} />
           <ReferenceArea y1={zoneLo} y2={max} fill="var(--great)" fillOpacity={0.08} ifOverflow="extendDomain" />
+          {markers.map((t) => (
+            <ReferenceLine key={t} x={t} stroke="var(--poor)" strokeDasharray="3 3" strokeOpacity={0.7} />
+          ))}
           <ChartTooltip
             cursor={{ stroke: 'var(--line)' }}
             content={({ active, payload }) => {

@@ -1,25 +1,33 @@
-//! Receives readings from the bridge: validates, stores, scores, and publishes
-//! them to live subscribers (the SSE stream).
+//! Receives readings from the bridge: attaches the latest webcam light/sound
+//! values, validates, stores, scores, and publishes them to live subscribers
+//! (the SSE stream).
 
 use std::sync::Arc;
 
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
+use super::AmbientService;
 use crate::domain::{LiveEvent, Reading, ScoredReading};
 use crate::repositories::ReadingRepository;
 
 pub struct IngestService {
     repo: Arc<dyn ReadingRepository>,
     events: broadcast::Sender<LiveEvent>,
+    ambient: Arc<AmbientService>,
 }
 
 impl IngestService {
-    pub fn new(repo: Arc<dyn ReadingRepository>, events: broadcast::Sender<LiveEvent>) -> Self {
-        Self { repo, events }
+    pub fn new(
+        repo: Arc<dyn ReadingRepository>,
+        events: broadcast::Sender<LiveEvent>,
+        ambient: Arc<AmbientService>,
+    ) -> Self {
+        Self { repo, events, ambient }
     }
 
-    pub fn handle(&self, reading: Reading) {
+    pub fn handle(&self, mut reading: Reading) {
+        reading.ambient = self.ambient.current(reading.received_at);
         let scored = ScoredReading::from(reading);
         log(&scored);
         if let Err(e) = self.repo.save(&scored.reading, &scored.flags) {
@@ -34,12 +42,14 @@ impl IngestService {
 fn log(scored: &ScoredReading) {
     let r = &scored.reading;
     let summary = format!(
-        "{} eCO2 (estimated) {} ppm, TVOC {} ppb, temp {}, RH {}, uptime {}s",
+        "{} eCO2 (estimated) {} ppm, TVOC {} ppb, temp {}, RH {}, light {}, sound {}, uptime {}s",
         r.received_at.format("%Y-%m-%dT%H:%M:%SZ"),
         r.eco2_ppm,
         r.tvoc_ppb,
         fmt_opt(r.temp_f, "F"),
         fmt_opt(r.humidity_pct, "%"),
+        fmt_opt(r.ambient.light_level, "/100"),
+        fmt_opt(r.ambient.sound_db, "dB"),
         r.uptime_s,
     );
     match &scored.score {
@@ -60,6 +70,7 @@ fn fmt_opt(v: Option<f64>, unit: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::ambient::Ambient;
     use std::sync::Mutex;
 
     use chrono::{DateTime, Utc};
@@ -102,6 +113,7 @@ mod tests {
             temp_f: Some(68.0),
             humidity_pct: Some(45.0),
             uptime_s: WARM_UP_SECS,
+            ambient: Ambient::default(),
         }
     }
 
@@ -109,7 +121,7 @@ mod tests {
     fn saves_and_publishes_every_reading_with_its_flags() {
         let repo = Arc::new(FakeRepo::default());
         let (tx, mut rx) = broadcast::channel(8);
-        let ingest = IngestService::new(repo.clone(), tx);
+        let ingest = IngestService::new(repo.clone(), tx, Arc::default());
         let ok = valid();
         let warming = Reading { uptime_s: 10, ..ok.clone() };
 
@@ -128,10 +140,24 @@ mod tests {
     }
 
     #[test]
+    fn attaches_fresh_light_and_sound() {
+        let repo = Arc::new(FakeRepo::default());
+        let (tx, _rx) = broadcast::channel(8);
+        let ambient = Arc::new(AmbientService::default());
+        let r = valid();
+        ambient.record_light(3.0, r.received_at - chrono::Duration::seconds(30));
+        ambient.record_sound(33.0, 41.0, r.received_at - chrono::Duration::seconds(300)); // stale
+        IngestService::new(repo.clone(), tx, ambient).handle(r);
+        let saved = &repo.saved.lock().unwrap()[0].0;
+        assert_eq!(saved.ambient.light_level, Some(3.0));
+        assert_eq!(saved.ambient.sound_db, None);
+    }
+
+    #[test]
     fn does_not_publish_when_save_fails() {
         let repo = Arc::new(FakeRepo { fail: true, ..Default::default() });
         let (tx, mut rx) = broadcast::channel(8);
-        IngestService::new(repo, tx).handle(valid());
+        IngestService::new(repo, tx, Arc::default()).handle(valid());
         assert!(rx.try_recv().is_err());
     }
 }

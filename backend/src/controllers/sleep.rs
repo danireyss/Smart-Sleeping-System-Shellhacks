@@ -58,6 +58,7 @@ pub async fn nights(State(state): State<AppState>) -> Result<Json<Vec<NightSumma
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::ambient::Ambient;
     use axum::http::StatusCode;
     use chrono::{DateTime, Duration, TimeZone, Utc};
     use serde_json::{json, Value};
@@ -105,6 +106,7 @@ mod tests {
             temp_f: Some(temp),
             humidity_pct: Some(49.8),
             uptime_s: WARM_UP_SECS,
+            ambient: Ambient::default(),
         }
     }
 

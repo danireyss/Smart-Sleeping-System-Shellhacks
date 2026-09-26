@@ -17,7 +17,9 @@ use crate::config::Config;
 use crate::controllers::AppState;
 use crate::repositories::{SqliteReadingRepository, SqliteSessionRepository};
 use crate::adapters::bridge::{BridgeChannels, DeviceCall};
-use crate::services::{AgentService, DeviceService, IngestService, ReadingService, SleepService};
+use crate::services::{
+    AgentService, AmbientService, DeviceService, IngestService, ReadingService, SleepService,
+};
 
 #[tokio::main]
 async fn main() {
@@ -49,7 +51,24 @@ async fn main() {
     let sleep = Arc::new(SleepService::new(sessions, repo.clone(), events.clone()));
 
     // Bridge → ingest (readings) and bridge → device service (LCD calls).
-    let ingest = IngestService::new(repo, events.clone());
+    // Webcam light/sound (optional): adapters record into `ambient`, ingest attaches it.
+    let ambient = Arc::new(AmbientService::default());
+    match &config.camera_device {
+        Some(device) => {
+            info!("light level from camera {device}");
+            adapters::camera::spawn(device.clone(), config.camera_exposure, ambient.clone());
+        }
+        None => info!("no light level (set CAMERA_DEVICE to enable)"),
+    }
+    match &config.mic_device {
+        Some(device) => {
+            info!("sound level from microphone {device}");
+            adapters::microphone::spawn(device.clone(), config.sound_calibration_db, ambient.clone());
+        }
+        None => info!("no sound level (set MIC_DEVICE to enable)"),
+    }
+
+    let ingest = IngestService::new(repo, events.clone(), ambient);
     let device = DeviceService::new(sleep.clone(), readings.clone());
     let (readings_tx, mut readings_rx) = mpsc::channel(64);
     let (device_tx, mut device_rx) = mpsc::channel::<DeviceCall>(16);

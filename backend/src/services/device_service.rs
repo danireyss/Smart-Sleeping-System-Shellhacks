@@ -66,6 +66,7 @@ mod tests {
             temp_f: Some(76.64),
             humidity_pct: Some(49.8),
             uptime_s,
+            ambient: Default::default(),
         }
     }
 

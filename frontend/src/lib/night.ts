@@ -21,7 +21,13 @@ export function nightHeadline(night: NightReport, targets: Targets | null): { ti
   }
 }
 
-const STATS_KEY = { eco2: 'eco2_ppm', temp: 'temp_f', humidity: 'humidity_pct' } as const
+const STATS_KEY = {
+  eco2: 'eco2_ppm',
+  temp: 'temp_f',
+  humidity: 'humidity_pct',
+  light: 'light_level',
+  sound: 'sound_db',
+} as const
 
 /** The NightReport field holding a metric's stats. */
 export const statsKey = (key: MetricKey) => STATS_KEY[key]

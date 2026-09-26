@@ -8,6 +8,8 @@ import { useNight, useNights, useReadings, useTargets } from '@/hooks/data'
 import type { NightReport, NightSummary, Targets } from '@/lib/api'
 import { nightDate, nightHeadline, statsKey } from '@/lib/night'
 import { METRICS, longDate, timeOfDay, withUnit } from '@/lib/format'
+
+const timeShort = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 import { cn } from '@/lib/utils'
 
 /** ?night=<id> selects a past night; without it, the latest night is shown. */
@@ -93,7 +95,14 @@ function Report({
           </h2>
           {targets && readings ? (
             readings.some((r) => r.score) ? (
-              <MetricCharts readings={readings} targets={targets} start={start} end={end} variant="full" />
+              <MetricCharts
+                readings={readings}
+                targets={targets}
+                start={start}
+                end={end}
+                variant="full"
+                markers={{ sound: night.noise_events?.starts ?? [] }}
+              />
             ) : (
               <p className="text-sm text-text-muted">No scored readings during this session.</p>
             )
@@ -102,19 +111,20 @@ function Report({
           )}
         </section>
 
-        <div className="flex gap-5">
-          {METRICS.map((m) => {
+        <div className="grid grid-cols-3 gap-5">
+          {METRICS.filter((m) => !m.optional || night[statsKey(m.key)]).map((m) => {
             const s = night[statsKey(m.key)]
-            // Share of valid minutes inside the target range.
+            // Share of this metric's minutes inside the target range.
+            const minutes = s?.minutes ?? night.valid_minutes
             const inRange =
-              s && night.valid_minutes > 0
-                ? Math.round(((night.valid_minutes - s.minutes_out_of_range) / night.valid_minutes) * 100)
-                : null
+              s && minutes > 0 ? Math.round(((minutes - s.minutes_out_of_range) / minutes) * 100) : null
+            const noise = m.key === 'sound' ? night.noise_events : null
             return (
-              <section key={m.key} className="flex flex-1 flex-col gap-4 rounded-2xl bg-surface p-6">
+              <section key={m.key} className="flex flex-col gap-4 rounded-2xl bg-surface p-6">
                 <h3 className="text-[13px] font-medium tracking-[0.2px] text-text-muted">
                   {/* Uppercase by hand: CSS would turn eCO₂ into ECO₂. */}
-                  {m.key === 'eco2' ? 'eCO₂ (ESTIMATED)' : m.label.toUpperCase()}
+                  {m.key === 'eco2' ? 'eCO₂' : m.label.toUpperCase()}
+                  {m.estimated && ' (ESTIMATED)'}
                 </h3>
                 {s ? (
                   <>
@@ -140,6 +150,19 @@ function Report({
                         )}
                       >
                         {inRange}% of the time in target range
+                      </p>
+                    )}
+                    {noise && (
+                      <p
+                        className={cn('text-xs tracking-[0.15px]', noise.count === 0 ? 'text-text-muted' : 'text-fair')}
+                        title={noise.starts.map(timeShort).join(', ')}
+                      >
+                        {noise.count === 0
+                          ? `No noise events above ${noise.threshold_db} dB`
+                          : `${noise.count} noise event${noise.count === 1 ? '' : 's'} above ${noise.threshold_db} dB (${noise.starts
+                              .slice(0, 3)
+                              .map(timeShort)
+                              .join(', ')}${noise.count > 3 ? ', …' : ''})`}
                       </p>
                     )}
                   </>

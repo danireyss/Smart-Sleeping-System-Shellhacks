@@ -11,6 +11,7 @@ import {
   BAND_LABEL,
   BAND_TEXT,
   METRICS,
+  visibleMetrics,
   STALE_AFTER_MIN,
   liveState,
   minutesSince,
@@ -19,6 +20,7 @@ import {
   tenths,
   timeOfDay,
   whole,
+  type MetricKey,
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useRouter } from '@/router'
@@ -98,8 +100,8 @@ export function Home() {
         )}
 
         {targets && (
-          <div className="flex gap-5">
-            {METRICS.map((m) => (
+          <div className="grid grid-cols-3 gap-5">
+            {visibleMetrics([reading, ...(readings ?? [])]).map((m) => (
               <MetricTile key={m.key} metric={m} reading={reading ?? null} targets={targets} stale={stale} />
             ))}
           </div>
@@ -150,7 +152,7 @@ function ScoreHeadline({
   const score = reading.score
   const off = METRICS.map((m) => {
     const v = m.value(reading)
-    return { m, v, off: v === null ? null : offTarget(m, targets, v), sub: score[m.key] }
+    return { m, v, off: v === null ? null : offTarget(m, targets, v), sub: score[m.key] ?? 100 }
   })
     .filter((x) => x.off)
     .sort((a, b) => a.sub - b.sub)
@@ -159,24 +161,37 @@ function ScoreHeadline({
     return (
       <>
         <p className="text-base font-medium text-text">All readings are in their target ranges.</p>
-        <p className="text-sm text-text-muted">eCO₂ (estimated), temperature, and humidity are on target.</p>
+        <p className="text-sm text-text-muted">
+          {METRICS.filter((m) => m.value(reading) !== null)
+            .map((m) => (m.estimated ? `${m.label} (estimated)` : m.label))
+            .join(', ')}{' '}
+          on target.
+        </p>
       </>
     )
   }
   const worst = off[0]
   const gap = worst.m.key === 'eco2' ? whole(worst.off!.by) : tenths(worst.off!.by)
   const direction = worst.off!.dir === 'high' ? 'above' : 'below'
-  const subject =
-    worst.m.key === 'temp' ? 'Room is' : worst.m.key === 'eco2' ? 'eCO₂ (estimated) is' : 'Humidity is'
+  const subject = HEADLINE_SUBJECT[worst.m.key]
   const others = off.slice(1).map((x) => x.m.label)
   return (
     <>
       <p className="text-base font-medium text-text">
-        {subject} {gap} {worst.m.unit} {direction} target.
+        {subject} {gap}
+        {worst.m.unit.startsWith('/') ? '' : ` ${worst.m.unit}`} {direction} target.
       </p>
       <p className="text-sm text-text-muted">
         {others.length === 0 ? 'Other readings are in range.' : `Also out of range: ${others.join(', ')}.`}
       </p>
     </>
   )
+}
+
+const HEADLINE_SUBJECT: Record<MetricKey, string> = {
+  eco2: 'eCO₂ (estimated) is',
+  temp: 'Room is',
+  humidity: 'Humidity is',
+  light: 'Estimated light level is',
+  sound: 'Estimated sound level is',
 }

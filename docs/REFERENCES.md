@@ -1,7 +1,7 @@
 # References
 
-Sources for the scoring targets: peer-reviewed studies on bedroom air and sleep,
-plus public indoor-air guidance. The system scores the **room**, not the person,
+Sources for the scoring targets: peer-reviewed studies on bedroom air, light, and
+sleep, plus public indoor-air and noise guidance. The system scores the **room**, not the person,
 and makes no health claims.
 
 The agent's `get_targets` tool returns the author-year labels below for each
@@ -14,10 +14,14 @@ metric, so it can say where a target comes from.
 | eCO₂ | ≤ 800 ppm; 0 points at ≥ 2,000 ppm | [1], [2], [5]: better bedroom ventilation (lower CO₂) improves sleep quality. [3]: an average of ~1,000 ppm already measurably worsens sleep. |
 | Temperature | 65–70 °F | [2], [4]: a warm bedroom disturbs sleep. The exact 65–70 °F band is our choice, informed by these studies; they do not prescribe it. |
 | Humidity | 40–60% RH | [6]: adverse effects are minimized between 40 and 60%. [7]: keep indoor humidity below 60% (ideally 30–50%). [4]: high humidity disturbs sleep. |
+| Sound (webcam, estimated) | ≤ 30 dB Leq; 0 points at ≥ 55 dB. Noise event: a minute with a peak above 45 dB | [8]: in bedrooms, 30 dB LAeq for continuous noise and 45 dB LAmax for single noise events (and not more than 10–15 such events per night). The 55 dB zero point is our choice. |
+| Light (webcam, estimated) | ≤ 5 on a relative 0–100 scale; 0 points at ≥ 40 | [9]: sleeping with overhead room light (100 lux) vs. a dim room (< 3 lux). The webcam gives relative brightness, not lux, so these thresholds are placeholders to calibrate in the real room. |
 
 Caveats:
 - The CCS811 **estimates** CO₂ from VOCs (eCO₂). The studies measured real CO₂, so
   their thresholds are a guide for our estimated values, not a direct match.
+- The webcam measures relative brightness (not lux) and unweighted sound (not the
+  A-weighted dB in [8]); both are labeled "estimated" and calibrated by hand.
 - We have read the titles and abstracts, not every full paper.
 
 ## Sources
@@ -54,3 +58,11 @@ Caveats:
 7. U.S. Environmental Protection Agency. A Brief Guide to Mold, Moisture and Your Home.
    https://www.epa.gov/mold/brief-guide-mold-moisture-and-your-home
    — Label: "US EPA mold and moisture guide"
+8. Berglund, B., Lindvall, T., & Schwela, D. H. (Eds.). (1999). *Guidelines for Community
+   Noise*. World Health Organization.
+   — Label: "WHO Guidelines for Community Noise, 1999"
+9. Mason, I. C., Grimaldi, D., Reid, K. J., Warlick, C. D., Malkani, R. G., Abbott, S. M., &
+   Zee, P. C. (2022). Light exposure during sleep impairs cardiometabolic function.
+   *Proceedings of the National Academy of Sciences, 119*(12), e2113290119.
+   https://doi.org/10.1073/pnas.2113290119
+   — Label: "Mason et al., 2022"

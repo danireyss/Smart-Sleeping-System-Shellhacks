@@ -8,6 +8,7 @@ import {
   BAND_BG,
   BAND_LABEL,
   METRICS,
+  visibleMetrics,
   STALE_AFTER_MIN,
   hoursMinutes,
   liveState,
@@ -105,8 +106,8 @@ function InProgress({ session }: { session: SleepSession }) {
         )}
       </div>
 
-      <div className={cn('flex gap-4', stale && 'opacity-40')}>
-        {METRICS.map((m) => {
+      <div className={cn('flex flex-wrap justify-center gap-4', stale && 'opacity-40')}>
+        {visibleMetrics([reading]).map((m) => {
           const v = reading ? m.value(reading) : null
           return (
             <div key={m.key} className="flex items-center gap-2.5 rounded-full bg-surface px-5 py-3">
@@ -150,8 +151,8 @@ function MorningSummary({ night }: { night: NightReport | null }) {
             <NightScoreBlock night={night} />
           </div>
           <SummaryCard night={night} targets={targets} />
-          <div className="flex gap-4">
-            {METRICS.map((m) => {
+          <div className="flex flex-wrap justify-center gap-4">
+            {METRICS.filter((m) => !m.optional || night[statsKey(m.key)]).map((m) => {
               const s = night[statsKey(m.key)]
               return (
                 <div key={m.key} className="flex items-center gap-2.5 rounded-full bg-surface px-5 py-3">

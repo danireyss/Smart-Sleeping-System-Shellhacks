@@ -5,11 +5,19 @@
 //! | eCO₂        | ≤ 800 ppm   | linear             | ≥ 2,000 ppm        |
 //! | Temperature | 65–70 °F    | −10 per °F outside | ≤ 55 or ≥ 80 °F    |
 //! | Humidity    | 40–60% RH   | −5 per % outside   | ≤ 20% or ≥ 80%     |
+//! | Light*      | ≤ 5 (0–100) | linear             | ≥ 40               |
+//! | Sound*      | ≤ 30 dB Leq | linear             | ≥ 55 dB            |
+//!
+//! *Webcam estimates (domain/ambient.rs). Light is a relative 0–100 level, so its
+//! thresholds are placeholders to calibrate in the real room. Sound targets start
+//! from WHO's 30 dB LAeq for bedrooms.
 //!
 //! Sources for these targets: docs/REFERENCES.md.
 //!
-//! Minute score = average of the three sub-scores. Readings arrive once a minute
-//! in production, so a reading's score is its minute's score.
+//! Minute score = average of the available sub-scores: eCO₂, temperature, and
+//! humidity always; light and sound when the webcam provided them (so readings
+//! without a webcam score exactly as before). Readings arrive once a minute in
+//! production, so a reading's score is its minute's score.
 //!
 //! Scores are computed from the reading at API precision (`Reading::rounded`), so
 //! a shown 79.0 °F always scores 10.0.
@@ -32,6 +40,16 @@ pub const TEMP_POINTS_PER_F: f64 = 10.0;
 pub const HUMIDITY_TARGET_PCT: (f64, f64) = (40.0, 60.0);
 pub const HUMIDITY_POINTS_PER_PCT: f64 = 5.0;
 
+/// Light level (relative 0–100): full points at or below, zero at or above. Placeholders.
+pub const LIGHT_FULL: f64 = 5.0;
+pub const LIGHT_ZERO: f64 = 40.0;
+
+/// Sound Leq (estimated dB): full points at or below WHO's 30 dB, zero at or above.
+pub const SOUND_FULL_DB: f64 = 30.0;
+pub const SOUND_ZERO_DB: f64 = 55.0;
+/// A minute whose peak (Lmax) is above this counts toward a noise event (WHO: 45 dB LAmax).
+pub const NOISE_EVENT_DB: f64 = 45.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Band {
@@ -49,6 +67,12 @@ pub struct MinuteScore {
     pub temp: f64,
     #[serde(serialize_with = "round::tenths")]
     pub humidity: f64,
+    /// `None` without a webcam light sample.
+    #[serde(serialize_with = "round::tenths_opt")]
+    pub light: Option<f64>,
+    /// `None` without a webcam sound sample.
+    #[serde(serialize_with = "round::tenths_opt")]
+    pub sound: Option<f64>,
     #[serde(serialize_with = "round::tenths")]
     pub total: f64,
     pub band: Band,
@@ -74,8 +98,7 @@ impl From<Reading> for ScoredReading {
 
 /// 100 at ≤ 800 ppm, 0 at ≥ 2,000 ppm, linear in between.
 pub fn eco2_score(ppm: f64) -> f64 {
-    let fraction = (ECO2_ZERO_PPM - ppm) / (ECO2_ZERO_PPM - ECO2_FULL_PPM);
-    (fraction * 100.0).clamp(0.0, 100.0)
+    linear_down(ppm, ECO2_FULL_PPM, ECO2_ZERO_PPM)
 }
 
 /// 100 at 65–70 °F, minus 10 per °F outside (0 at ≤ 55 or ≥ 80 °F).
@@ -116,8 +139,28 @@ pub fn score(reading: &Reading) -> Option<MinuteScore> {
     let eco2 = round1(eco2_score(reading.eco2_ppm));
     let temp = round1(temp_score(temp_f));
     let humidity = round1(humidity_score(humidity_pct));
-    let total = round1((eco2 + temp + humidity) / 3.0);
-    Some(MinuteScore { eco2, temp, humidity, total, band: band(total) })
+    let ambient = reading.ambient.validated();
+    let light = ambient.light_level.map(|v| round1(light_score(v)));
+    let sound = ambient.sound_db.map(|v| round1(sound_score(v)));
+
+    let subs: Vec<f64> = [Some(eco2), Some(temp), Some(humidity), light, sound].into_iter().flatten().collect();
+    let total = round1(subs.iter().sum::<f64>() / subs.len() as f64);
+    Some(MinuteScore { eco2, temp, humidity, light, sound, total, band: band(total) })
+}
+
+/// 100 at ≤ `LIGHT_FULL`, 0 at ≥ `LIGHT_ZERO`, linear in between.
+pub fn light_score(level: f64) -> f64 {
+    linear_down(level, LIGHT_FULL, LIGHT_ZERO)
+}
+
+/// 100 at ≤ 30 dB Leq, 0 at ≥ 55 dB, linear in between.
+pub fn sound_score(db: f64) -> f64 {
+    linear_down(db, SOUND_FULL_DB, SOUND_ZERO_DB)
+}
+
+/// 100 at or below `full`, 0 at or above `zero`, linear in between.
+fn linear_down(value: f64, full: f64, zero: f64) -> f64 {
+    ((zero - value) / (zero - full) * 100.0).clamp(0.0, 100.0)
 }
 
 fn target_score(value: f64, (lo, hi): (f64, f64), points_per_unit: f64) -> f64 {
@@ -133,6 +176,7 @@ fn target_score(value: f64, (lo, hi): (f64, f64), points_per_unit: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::ambient::Ambient;
     use super::*;
     use crate::domain::reading::WARM_UP_SECS;
     use chrono::Utc;
@@ -149,6 +193,7 @@ mod tests {
             temp_f: Some(temp),
             humidity_pct: Some(humidity),
             uptime_s: WARM_UP_SECS,
+            ambient: Ambient::default(),
         }
     }
 
@@ -237,6 +282,41 @@ mod tests {
         assert_eq!(score(&reading(800.4, 68.0, 45.0)).unwrap().eco2, 100.0);
         // 50.04% RH is shown as 50.0, which is on target.
         assert_eq!(score(&reading(600.0, 68.0, 50.04)).unwrap().humidity, 100.0);
+    }
+
+    #[test]
+    fn light_and_sound_edges() {
+        assert_close(light_score(0.0), 100.0);
+        assert_close(light_score(5.0), 100.0);
+        assert_close(light_score(22.5), 50.0);
+        assert_close(light_score(40.0), 0.0);
+        assert_close(light_score(90.0), 0.0);
+        assert_close(sound_score(25.0), 100.0);
+        assert_close(sound_score(30.0), 100.0);
+        assert_close(sound_score(42.5), 50.0);
+        assert_close(sound_score(55.0), 0.0);
+        assert_close(sound_score(70.0), 0.0);
+    }
+
+    #[test]
+    fn light_and_sound_join_the_total_when_present() {
+        let base = reading(600.0, 68.0, 45.0); // 100, 100, 100
+        let without = score(&base).unwrap();
+        assert_eq!((without.light, without.sound, without.total), (None, None, 100.0));
+
+        // Light 22.5 -> 50, sound 42.5 -> 50: (100 + 100 + 100 + 50 + 50) / 5 = 80.0
+        let ambient = Ambient { light_level: Some(22.5), sound_db: Some(42.5), sound_peak_db: Some(50.0) };
+        let with = score(&Reading { ambient, ..base.clone() }).unwrap();
+        assert_eq!((with.light, with.sound, with.total), (Some(50.0), Some(50.0), 80.0));
+        assert_eq!(with.band, Band::Good);
+
+        // Only sound: (100 * 3 + 50) / 4 = 87.5
+        let ambient = Ambient { sound_db: Some(42.5), ..Ambient::default() };
+        assert_eq!(score(&Reading { ambient, ..base.clone() }).unwrap().total, 87.5);
+
+        // An out-of-range light value is ignored, not scored as 0.
+        let ambient = Ambient { light_level: Some(150.0), ..Ambient::default() };
+        assert_eq!(score(&Reading { ambient, ..base }).unwrap().light, None);
     }
 
     #[test]

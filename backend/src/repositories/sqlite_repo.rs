@@ -3,6 +3,8 @@
 //! `received_at` is stored as fixed-width UTC text (`YYYY-MM-DDTHH:MM:SS.mmmZ`) so
 //! string order matches time order and the index works for range queries.
 //! `flags` is a comma-separated list of `Flag::as_str` names; empty means valid.
+//! `light_level`, `sound_db`, `sound_peak_db` are NULL when there was no webcam
+//! sample; they are added to older databases on open (see `migrate`).
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -12,12 +14,17 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::{ReadingRepository, RepoError};
+use crate::domain::ambient::Ambient;
 use crate::domain::{Flag, Reading};
 
 const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
 
-const SELECT_READING: &str =
-    "SELECT received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s FROM readings";
+const SELECT_READING: &str = "SELECT received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, \
+     uptime_s, light_level, sound_db, sound_peak_db FROM readings";
+
+/// Columns added after the first release, created on open if missing.
+const ADDED_COLUMNS: [(&str, &str); 3] =
+    [("light_level", "REAL"), ("sound_db", "REAL"), ("sound_peak_db", "REAL")];
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS readings (
@@ -49,8 +56,22 @@ impl SqliteReadingRepository {
 
     fn init(conn: Connection) -> Result<Self, RepoError> {
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
+}
+
+/// Adds columns that older databases (like the board's) don't have yet.
+fn migrate(conn: &Connection) -> Result<(), RepoError> {
+    let mut stmt = conn.prepare("PRAGMA table_info(readings)")?;
+    let existing: Vec<String> =
+        stmt.query_map([], |row| row.get::<_, String>(1))?.collect::<Result<_, _>>()?;
+    for (name, kind) in ADDED_COLUMNS {
+        if !existing.iter().any(|c| c == name) {
+            conn.execute_batch(&format!("ALTER TABLE readings ADD COLUMN {name} {kind}"))?;
+        }
+    }
+    Ok(())
 }
 
 impl ReadingRepository for SqliteReadingRepository {
@@ -59,8 +80,9 @@ impl ReadingRepository for SqliteReadingRepository {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO readings
-                (received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s, flags)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s, flags,
+                 light_level, sound_db, sound_peak_db)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 timestamp(reading.received_at),
                 reading.eco2_ppm,
@@ -69,6 +91,9 @@ impl ReadingRepository for SqliteReadingRepository {
                 reading.humidity_pct,
                 reading.uptime_s as i64,
                 flags,
+                reading.ambient.light_level,
+                reading.ambient.sound_db,
+                reading.ambient.sound_peak_db,
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -110,22 +135,38 @@ pub(super) fn parse_timestamp(s: &str) -> Result<DateTime<Utc>, RepoError> {
     Ok(DateTime::parse_from_rfc3339(s)?.with_timezone(&Utc))
 }
 
-type RawRow = (String, f64, f64, Option<f64>, Option<f64>, i64);
-
-fn raw_row(row: &Row) -> rusqlite::Result<RawRow> {
-    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+/// A row as read, before the timestamp and uptime are converted.
+struct RawRow {
+    received_at: String,
+    eco2_ppm: f64,
+    tvoc_ppb: f64,
+    temp_f: Option<f64>,
+    humidity_pct: Option<f64>,
+    uptime_s: i64,
+    ambient: Ambient,
 }
 
-fn to_reading(
-    (received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s): RawRow,
-) -> Result<Reading, RepoError> {
+fn raw_row(row: &Row) -> rusqlite::Result<RawRow> {
+    Ok(RawRow {
+        received_at: row.get(0)?,
+        eco2_ppm: row.get(1)?,
+        tvoc_ppb: row.get(2)?,
+        temp_f: row.get(3)?,
+        humidity_pct: row.get(4)?,
+        uptime_s: row.get(5)?,
+        ambient: Ambient { light_level: row.get(6)?, sound_db: row.get(7)?, sound_peak_db: row.get(8)? },
+    })
+}
+
+fn to_reading(raw: RawRow) -> Result<Reading, RepoError> {
     Ok(Reading {
-        received_at: parse_timestamp(&received_at)?,
-        eco2_ppm,
-        tvoc_ppb,
-        temp_f,
-        humidity_pct,
-        uptime_s: u64::try_from(uptime_s)?,
+        received_at: parse_timestamp(&raw.received_at)?,
+        eco2_ppm: raw.eco2_ppm,
+        tvoc_ppb: raw.tvoc_ppb,
+        temp_f: raw.temp_f,
+        humidity_pct: raw.humidity_pct,
+        uptime_s: u64::try_from(raw.uptime_s)?,
+        ambient: raw.ambient,
     })
 }
 
@@ -157,6 +198,7 @@ mod tests {
             temp_f: Some(77.7),
             humidity_pct: Some(49.0),
             uptime_s: 1300,
+            ambient: Ambient::default(),
         }
     }
 
@@ -226,6 +268,45 @@ mod tests {
         };
         repo.save(&r, &[]).unwrap();
         assert_eq!(repo.latest().unwrap(), Some(r));
+    }
+
+    #[test]
+    fn stores_light_and_sound() {
+        let repo = SqliteReadingRepository::in_memory().unwrap();
+        let ambient = Ambient { light_level: Some(3.5), sound_db: Some(31.2), sound_peak_db: Some(47.8) };
+        let r = Reading { ambient, ..reading() };
+        repo.save(&r, &[]).unwrap();
+        assert_eq!(repo.latest().unwrap(), Some(r));
+    }
+
+    #[test]
+    fn migrates_a_database_created_before_light_and_sound() {
+        // The original schema, as on the board before this change, with one row.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE readings (
+                id INTEGER PRIMARY KEY, received_at TEXT NOT NULL, eco2_ppm REAL NOT NULL,
+                tvoc_ppb REAL NOT NULL, temp_f REAL, humidity_pct REAL,
+                uptime_s INTEGER NOT NULL, flags TEXT NOT NULL);
+             INSERT INTO readings (received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s, flags)
+             VALUES ('2026-09-26T05:41:05.000Z', 432, 4, 77.7, 49.0, 1300, '');",
+        )
+        .unwrap();
+        let repo = SqliteReadingRepository::init(conn).unwrap();
+
+        // The old row reads back with no light/sound; new rows store them.
+        assert_eq!(repo.latest().unwrap(), Some(reading()));
+        let later = Reading {
+            received_at: reading().received_at + chrono::Duration::minutes(1),
+            ambient: Ambient { light_level: Some(2.0), ..Ambient::default() },
+            ..reading()
+        };
+        repo.save(&later, &[]).unwrap();
+        assert_eq!(repo.latest().unwrap(), Some(later));
+
+        // Opening again is a no-op.
+        let conn = repo.conn.into_inner().unwrap();
+        assert!(SqliteReadingRepository::init(conn).is_ok());
     }
 
     #[test]

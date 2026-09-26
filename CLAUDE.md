@@ -11,9 +11,9 @@ results. Scores the **room, not the person** — no health data.
 - Rust installed on the board; `build-essential pkg-config libssl-dev` installed.
 - Both sensors wired and **verified** with a C++ test sketch in App Lab (app `sensor-test`):
   CCS811 found at I²C **0x5A**; DHT11 reads temp/humidity.
-- **Next step (untested):** sketch sends readings to Linux via `Bridge.notify("reading", ...)`,
-  and a Rust program on Linux receives them through the Arduino router socket.
-  See "Next step" below.
+- **Bridge verified (Sat Sep 26):** App Lab app `sensor-test` runs `firmware/sensor_bridge.ino`,
+  which calls `Bridge.notify("reading", ...)`; `router-test/` (Rust, `rmpv`) registers `reading`
+  on the router socket and receives the readings. No sudo needed. Next: backend (see build order).
 
 ## Key decisions (these override anything older in the SRS)
 
@@ -78,27 +78,26 @@ socket at `/var/run/arduino-router.sock` (confirmed with `sudo ss -xlp | grep -i
   notifications: `[2, method, params]`.
 - Registrations drop when the client disconnects. `$/unregister`, `$/reset` also exist.
 
-## Next step (untested)
+## Bridge (verified)
 
-1. MCU sketch (App Lab app `sensor-test`, see `firmware/sensor_bridge.ino`) keeps the
-   latest CCS811 values and every 10 s (60 s in production) reads the DHT11, sets
-   compensation, and calls
-   `Bridge.notify("reading", (int)eco2, (int)tvoc, temp_f, humidity)`.
-2. Rust test program (`router-test/`, crate `rmpv`): connect to the router socket, send
-   `$/register` for `reading`, loop reading msgpack values and print notifications;
-   reply to any requests with `[1, id, nil, true]`.
-3. If registration works but no readings arrive, switch the sketch to `Bridge.call`.
-4. If "Permission denied" on the socket, run with sudo or fix the socket group.
+- MCU sketch (`firmware/sensor_bridge.ino`, App Lab app `sensor-test`) keeps the latest
+  CCS811 values and every 10 s (60 s in production) reads the DHT11, sets compensation,
+  and calls `Bridge.notify("reading", (int)eco2, (int)tvoc, temp_f, humidity, uptime_s)`.
+  temp_f/humidity are NaN if the DHT11 read fails; uptime_s = millis()/1000. Param order is
+  documented in the sketch and in `backend/src/adapters/bridge.rs` — keep them in sync.
+- `router-test/` connects to the socket, sends `$/register` for `reading`, and prints
+  notifications (params `[eco2, tvoc, temp_f, humidity, uptime_s]`). It replies `[1, id, nil, true]`
+  to requests, so `Bridge.call` would also work. Run: `cargo run -p router-test`.
+- Board runs ~78 °F on the DHT11; check for board heat before the overnight run.
 
 ## Backend layout (target)
 
 ```
-sleep-env/
-├── protocol/            # shared Reading type
+(repo root = Cargo workspace: backend/, router-test/)
 └── backend/src/
     ├── main.rs          # wiring: repos → services → router, spawn tasks
     ├── config.rs        # targets, intervals, AI base URL/key/model from env
-    ├── domain/          # pure types + scoring math (unit-tested, no I/O)
+    ├── domain/          # Reading + validation flags, scoring math (unit-tested, no I/O)
     ├── controllers/     # readings.rs, stream.rs (SSE), chat.rs
     ├── services/        # ingest_service, reading_service, agent_service
     ├── repositories/    # ReadingRepository trait + sqlite_repo.rs
@@ -132,7 +131,9 @@ a night with <60% valid minutes is "incomplete".
 | Humidity | 40–50% RH (placeholder) | −5 per % outside | ≤ 20% or ≥ 70% |
 
 Bands: Great 90–100, Good 80–89, Fair 70–79, Poor < 70.
-Flag readings during the first 20 minutes after CCS811 power-on (warm-up).
+Flag (exclude) readings when: uptime_s < 1200 (CCS811 warm-up), eco2 == 0, eCO₂ outside
+400–8192 ppm, temp missing or outside 32–120 °F, RH missing or outside 0–100%.
+Readings are timestamped in UTC by the backend on receipt (the MCU has no clock).
 
 ## Agent rules
 

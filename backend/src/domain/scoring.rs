@@ -21,14 +21,14 @@ use serde::Serialize;
 use super::round::{self, round1};
 use super::{Flag, Reading};
 
-const ECO2_FULL_PPM: f64 = 800.0;
-const ECO2_ZERO_PPM: f64 = 2000.0;
+pub const ECO2_FULL_PPM: f64 = 800.0;
+pub const ECO2_ZERO_PPM: f64 = 2000.0;
 
-const TEMP_TARGET_F: (f64, f64) = (65.0, 70.0);
-const TEMP_POINTS_PER_F: f64 = 10.0;
+pub const TEMP_TARGET_F: (f64, f64) = (65.0, 70.0);
+pub const TEMP_POINTS_PER_F: f64 = 10.0;
 
-const HUMIDITY_TARGET_PCT: (f64, f64) = (40.0, 50.0);
-const HUMIDITY_POINTS_PER_PCT: f64 = 5.0;
+pub const HUMIDITY_TARGET_PCT: (f64, f64) = (40.0, 50.0);
+pub const HUMIDITY_POINTS_PER_PCT: f64 = 5.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]

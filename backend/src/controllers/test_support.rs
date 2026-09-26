@@ -14,7 +14,7 @@ use tower::ServiceExt;
 use super::{router, AppState};
 use crate::domain::{Reading, ScoredReading};
 use crate::repositories::{ReadingRepository, SqliteReadingRepository, SqliteSessionRepository};
-use crate::services::{ReadingService, SleepService};
+use crate::services::{AgentService, ReadingService, SleepService};
 
 pub struct TestApp {
     pub router: Router,
@@ -29,9 +29,12 @@ pub fn app(readings: &[Reading]) -> TestApp {
     }
     let sessions = Arc::new(SqliteSessionRepository::in_memory().unwrap());
     let (events, _) = broadcast::channel(8);
+    let readings = Arc::new(ReadingService::new(repo.clone()));
+    let sleep = Arc::new(SleepService::new(sessions.clone(), repo));
     let state = AppState {
-        readings: Arc::new(ReadingService::new(repo.clone())),
-        sleep: Arc::new(SleepService::new(sessions.clone(), repo)),
+        agent: Arc::new(AgentService::new(None, readings.clone(), sleep.clone())),
+        readings,
+        sleep,
         events: events.clone(),
     };
     TestApp { router: router(state), events, sessions }
@@ -50,4 +53,16 @@ async fn send(app: &TestApp, req: Request<Body>) -> (StatusCode, Value) {
     let status = resp.status();
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     (status, serde_json::from_slice(&body).unwrap())
+}
+
+/// POSTs a JSON body and returns the status and the raw response text (for SSE).
+pub async fn post_json_text(app: &TestApp, uri: &str, body: Value) -> (StatusCode, String) {
+    let req = Request::post(uri)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.router.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (status, String::from_utf8(bytes.to_vec()).unwrap())
 }

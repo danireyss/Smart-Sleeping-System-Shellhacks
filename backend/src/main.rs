@@ -9,16 +9,19 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
+use crate::adapters::llm_client::{ChatModel, OpenAiChatModel};
 use crate::config::Config;
 use crate::controllers::AppState;
 use crate::repositories::{SqliteReadingRepository, SqliteSessionRepository};
-use crate::services::{IngestService, ReadingService, SleepService};
+use crate::services::{AgentService, IngestService, ReadingService, SleepService};
 
 #[tokio::main]
 async fn main() {
+    // Optional .env (gitignored) for LLM_API_KEY etc.
+    let _ = dotenvy::dotenv();
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
@@ -50,9 +53,22 @@ async fn main() {
         }
     });
 
+    let model: Option<Arc<dyn ChatModel>> = match (&config.llm_api_key, &config.llm_model) {
+        (Some(key), Some(model)) => {
+            info!("assistant: model {model} at {}", config.llm_base_url);
+            Some(Arc::new(OpenAiChatModel::new(&config.llm_base_url, key, model)))
+        }
+        _ => {
+            warn!("assistant offline: set LLM_API_KEY and LLM_MODEL to enable chat");
+            None
+        }
+    };
+    let readings = Arc::new(ReadingService::new(repo.clone()));
+    let sleep = Arc::new(SleepService::new(sessions, repo));
     let state = AppState {
-        readings: Arc::new(ReadingService::new(repo.clone())),
-        sleep: Arc::new(SleepService::new(sessions, repo)),
+        agent: Arc::new(AgentService::new(model, readings.clone(), sleep.clone())),
+        readings,
+        sleep,
         events,
     };
     let listener = match TcpListener::bind(&config.bind_addr).await {

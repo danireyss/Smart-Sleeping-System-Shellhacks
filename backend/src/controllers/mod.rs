@@ -1,6 +1,7 @@
 //! HTTP layer: routes, shared state, and error responses. Handlers call
 //! services only.
 
+pub mod chat;
 pub mod readings;
 pub mod sleep;
 pub mod stream;
@@ -18,12 +19,13 @@ use tokio::sync::broadcast;
 use tracing::error;
 
 use crate::domain::ScoredReading;
-use crate::services::{ReadingService, ServiceError, SleepService};
+use crate::services::{AgentService, ReadingService, ServiceError, SleepService};
 
 #[derive(Clone)]
 pub struct AppState {
     pub readings: Arc<ReadingService>,
     pub sleep: Arc<SleepService>,
+    pub agent: Arc<AgentService>,
     /// Every stored reading, published by the ingest service.
     pub events: broadcast::Sender<ScoredReading>,
 }
@@ -38,6 +40,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sleep/end", post(sleep::end))
         .route("/api/sleep/current", get(sleep::current))
         .route("/api/night/latest", get(sleep::latest_night))
+        .route("/api/chat", post(chat::chat))
         .with_state(state)
 }
 

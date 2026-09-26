@@ -174,10 +174,27 @@ Readings are timestamped in UTC by the backend on receipt (the MCU has no clock)
 
 - Every number the agent states must come from a tool result in the same turn;
   a backend check compares numbers in replies to tool results.
-- Tools: get_current, get_summary(start, end), get_night_score(date), get_targets.
+- Tools: get_current, get_summary(start, end), get_night_latest, get_targets. They call
+  services in-process (never repositories). get_current adds `minutes_since_reading`;
+  get_night_latest adds `time_in_sleep_mode` ("8h 50m") so those numbers are grounded.
 - Say so when data is missing; never estimate. Call CO₂ values "estimated (eCO₂)".
 - Recommendations name the metric, value, target, and one concrete action. No medical advice.
 - If the AI is down, dashboard and scoring keep working; chat shows an offline message.
+
+Implemented in `services/agent_service.rs` (loop, tools, system prompt),
+`adapters/llm_client.rs` (async-openai `byot` streaming, 20 s start/idle timeouts), and
+`domain/grounding.rs`:
+- Config: `LLM_BASE_URL` (default Groq `https://api.groq.com/openai/v1`), `LLM_API_KEY`,
+  `LLM_MODEL`. Missing key/model = assistant offline. The backend loads a gitignored `.env`
+  (see `.env.example`); never commit the key.
+- `POST /api/chat` `{"message", "history": [{"role": "user"|"assistant", "content"}]}`
+  (message ≤ 2000 chars, ≤ 20 history turns) → SSE events: `tool_call` {name, arguments,
+  result}, `token` {text}, `done` {grounding: {verified, checked, unmatched}}, or `offline`
+  {message} if the model is missing or unreachable (no `done` after it).
+- Up to 4 tool rounds per turn, then the model must answer in text.
+- Grounding: every unsigned number in the reply (commas stripped; digits after letters
+  like eCO2 ignored) must equal a number in this turn's tool results (JSON text, so
+  numbers inside strings count). Earlier turns don't count.
 
 ## Hackathon rules to respect
 

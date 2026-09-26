@@ -36,6 +36,21 @@ pub enum Flag {
     HumidityOutOfRange,
 }
 
+impl Flag {
+    /// Stable name, used in storage and logs.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Flag::WarmUp => "warm_up",
+            Flag::Eco2Zero => "eco2_zero",
+            Flag::Eco2OutOfRange => "eco2_out_of_range",
+            Flag::TempMissing => "temp_missing",
+            Flag::TempOutOfRange => "temp_out_of_range",
+            Flag::HumidityMissing => "humidity_missing",
+            Flag::HumidityOutOfRange => "humidity_out_of_range",
+        }
+    }
+}
+
 impl Reading {
     /// Reasons this reading should be excluded from scoring. Empty means valid.
     pub fn flags(&self) -> Vec<Flag> {

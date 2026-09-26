@@ -130,7 +130,11 @@ a night with <60% valid minutes is "incomplete".
 | Temperature | 65–70 °F | −10 per °F outside | ≤ 55 or ≥ 80 °F |
 | Humidity | 40–50% RH (placeholder) | −5 per % outside | ≤ 20% or ≥ 70% |
 
-Bands: Great 90–100, Good 80–89, Fair 70–79, Poor < 70.
+Bands: Great 90–100, Good 80–89, Fair 70–79, Poor < 70 (thresholds 90/80/70, so 89.9 is Good).
+A reading's score is its minute score. Nightly score = average of the scored (unflagged)
+readings in the window (equals averaging minutes, since the interval is constant).
+"Incomplete" = distinct minutes with ≥ 1 valid reading ÷ window length in minutes < 60%,
+so it works at both the 10 s dev and 60 s production intervals.
 Flag (exclude) readings when: uptime_s < 1200 (CCS811 warm-up), eco2 == 0, eCO₂ outside
 400–8192 ppm, temp missing or outside 32–120 °F, RH missing or outside 0–100%.
 Readings are timestamped in UTC by the backend on receipt (the MCU has no clock).

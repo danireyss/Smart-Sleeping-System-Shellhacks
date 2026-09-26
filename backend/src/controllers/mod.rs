@@ -26,6 +26,8 @@ pub struct AppState {
     pub readings: Arc<ReadingService>,
     pub sleep: Arc<SleepService>,
     pub agent: Arc<AgentService>,
+    /// Shared token required by POST /api/chat, if set (it spends the LLM quota).
+    pub chat_token: Option<Arc<str>>,
     /// Every stored reading, published by the ingest service.
     pub events: broadcast::Sender<ScoredReading>,
 }
@@ -48,6 +50,7 @@ pub fn router(state: AppState) -> Router {
 pub enum ApiError {
     NotFound(&'static str),
     BadRequest(String),
+    Unauthorized,
     Conflict(String),
     Internal(ServiceError),
 }
@@ -63,6 +66,9 @@ impl IntoResponse for ApiError {
         let (status, message) = match self {
             ApiError::NotFound(m) => (StatusCode::NOT_FOUND, m.to_string()),
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
+            ApiError::Unauthorized => {
+                (StatusCode::UNAUTHORIZED, "missing or invalid chat token".to_string())
+            }
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m),
             ApiError::Internal(e) => {
                 error!("request failed: {e}");

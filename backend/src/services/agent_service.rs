@@ -125,6 +125,8 @@ impl AgentService {
             }
         }
 
+        // Numbers from the user's own message may be repeated ("is 72 °F too hot?").
+        tool_results.push(json!(message));
         let grounding = grounding::check(&reply, &tool_results);
         if !grounding.verified {
             warn!("reply has numbers not found in tool results: {:?}", grounding.unmatched);
@@ -440,6 +442,16 @@ mod tests {
         let g = grounding(&events);
         assert!(!g.verified);
         assert_eq!(g.unmatched, vec!["76", "6"]);
+    }
+
+    #[tokio::test]
+    async fn numbers_from_the_current_message_are_allowed() {
+        let model = FakeModel::new(vec![
+            Ok(call("get_targets", "{}")),
+            Ok(text("72 °F is above the 65–70 °F target.")),
+        ]);
+        let events = run(&agent(Some(model)), "Is 72 °F too hot?", &[]).await;
+        assert_eq!(grounding(&events), &Grounding { verified: true, checked: 3, unmatched: vec![] });
     }
 
     #[tokio::test]

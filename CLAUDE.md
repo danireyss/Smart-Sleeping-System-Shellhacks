@@ -194,7 +194,11 @@ Implemented in `services/agent_service.rs` (loop, tools, system prompt),
 - Up to 4 tool rounds per turn, then the model must answer in text.
 - Grounding: every unsigned number in the reply (commas stripped; digits after letters
   like eCO2 ignored) must equal a number in this turn's tool results (JSON text, so
-  numbers inside strings count). Earlier turns don't count.
+  numbers inside strings count) or in the user's current message ("is 72 °F too hot?").
+  Earlier turns don't count.
+- `CHAT_TOKEN` (optional): when set, `/api/chat` requires `Authorization: Bearer <token>`
+  (401 otherwise). Set it before exposing the board (e.g. Cloudflare Tunnel), since chat
+  spends the Groq quota. Unset = open, fine on the local hotspot.
 
 ## Hackathon rules to respect
 

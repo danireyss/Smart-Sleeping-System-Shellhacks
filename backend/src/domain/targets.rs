@@ -38,7 +38,7 @@ pub fn targets() -> Value {
             "points_lost_per_percent_outside": HUMIDITY_POINTS_PER_PCT,
             "zero_points_at_or_below": rh_min - 100.0 / HUMIDITY_POINTS_PER_PCT,
             "zero_points_at_or_above": rh_max + 100.0 / HUMIDITY_POINTS_PER_PCT,
-            "sources": ["Okamoto-Mizuno et al., 1999"],
+            "sources": ["Arundel et al., 1986", "US EPA mold and moisture guide", "Okamoto-Mizuno et al., 1999"],
         },
         "score": "average of the three 0-100 sub-scores",
         "bands": { "great_min": 90, "good_min": 80, "fair_min": 70, "poor": "below 70" },
@@ -66,7 +66,7 @@ mod tests {
         assert_eq!(t["humidity_pct"]["target_max"], 60.0);
         assert_eq!(t["humidity_pct"]["zero_points_at_or_above"], 80.0);
         assert_eq!(t["eco2_ppm"]["sources"][2], "Kang et al., 2024");
-        assert_eq!(t["humidity_pct"]["sources"][0], "Okamoto-Mizuno et al., 1999");
+        assert_eq!(t["humidity_pct"]["sources"][0], "Arundel et al., 1986");
         assert_eq!(t["incomplete_night_below_pct"], 60.0);
         assert_eq!(t["short_session_under_minutes"], 60);
         assert_eq!(t["sensor_warm_up_minutes"], 20);

@@ -63,10 +63,14 @@ async fn main() {
             None
         }
     };
+    if config.chat_token.is_none() {
+        info!("chat is open to anyone who can reach the server (set CHAT_TOKEN to require a token)");
+    }
     let readings = Arc::new(ReadingService::new(repo.clone()));
     let sleep = Arc::new(SleepService::new(sessions, repo));
     let state = AppState {
         agent: Arc::new(AgentService::new(model, readings.clone(), sleep.clone())),
+        chat_token: config.chat_token.as_deref().map(Arc::from),
         readings,
         sleep,
         events,

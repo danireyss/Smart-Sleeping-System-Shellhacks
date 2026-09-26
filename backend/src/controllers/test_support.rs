@@ -23,6 +23,14 @@ pub struct TestApp {
 }
 
 pub fn app(readings: &[Reading]) -> TestApp {
+    build(readings, None)
+}
+
+pub fn app_with_chat_token(token: &str) -> TestApp {
+    build(&[], Some(token.into()))
+}
+
+fn build(readings: &[Reading], chat_token: Option<Arc<str>>) -> TestApp {
     let repo = Arc::new(SqliteReadingRepository::in_memory().unwrap());
     for r in readings {
         repo.save(r, &r.flags()).unwrap();
@@ -33,6 +41,7 @@ pub fn app(readings: &[Reading]) -> TestApp {
     let sleep = Arc::new(SleepService::new(sessions.clone(), repo));
     let state = AppState {
         agent: Arc::new(AgentService::new(None, readings.clone(), sleep.clone())),
+        chat_token,
         readings,
         sleep,
         events: events.clone(),
@@ -57,10 +66,21 @@ async fn send(app: &TestApp, req: Request<Body>) -> (StatusCode, Value) {
 
 /// POSTs a JSON body and returns the status and the raw response text (for SSE).
 pub async fn post_json_text(app: &TestApp, uri: &str, body: Value) -> (StatusCode, String) {
-    let req = Request::post(uri)
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap();
+    send_text(app, uri, &body, None).await
+}
+
+/// Like `post_json_text`, with an optional Authorization header value.
+pub async fn send_text(
+    app: &TestApp,
+    uri: &str,
+    body: &Value,
+    authorization: Option<&str>,
+) -> (StatusCode, String) {
+    let mut req = Request::post(uri).header("content-type", "application/json");
+    if let Some(auth) = authorization {
+        req = req.header("authorization", auth);
+    }
+    let req = req.body(Body::from(body.to_string())).unwrap();
     let resp = app.router.clone().oneshot(req).await.unwrap();
     let status = resp.status();
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();

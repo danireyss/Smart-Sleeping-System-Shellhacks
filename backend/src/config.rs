@@ -13,6 +13,8 @@ pub struct Config {
     pub llm_api_key: Option<String>,
     /// `None` leaves the assistant offline.
     pub llm_model: Option<String>,
+    /// When set, POST /api/chat requires `Authorization: Bearer <token>`.
+    pub chat_token: Option<String>,
 }
 
 impl Config {
@@ -26,6 +28,7 @@ impl Config {
                 .unwrap_or_else(|_| "https://api.groq.com/openai/v1".to_string()),
             llm_api_key: non_empty("LLM_API_KEY"),
             llm_model: non_empty("LLM_MODEL"),
+            chat_token: non_empty("CHAT_TOKEN"),
         }
     }
 }

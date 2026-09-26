@@ -1,27 +1,26 @@
 # References
 
-Sources for the scoring targets. They are the studies cited in the "Ambient
-Temperature, Ventilation, & Humidity" section of *The Testosterone Optimization
-Handbook – Sleep* (v1.0, pp. 21–22 and 70), which we used only to find them.
-The system scores the **room**, not the person, and makes no health claims.
+Sources for the scoring targets: peer-reviewed studies on bedroom air and sleep,
+plus public indoor-air guidance. The system scores the **room**, not the person,
+and makes no health claims.
 
 The agent's `get_targets` tool returns the author-year labels below for each
 metric, so it can say where a target comes from.
 
 ## Targets and where they come from
 
-| Metric | Our target (100 points) | Source |
+| Metric | Our target (100 points) | Sources |
 | --- | --- | --- |
-| eCO₂ | ≤ 800 ppm; 0 points at ≥ 2,000 ppm | Studies [1]–[3], [5]: better ventilation (lower CO₂) improves sleep quality; ~1,000 ppm already measurably worsens it [3]. The handbook suggests ~750 and < 1,000 ppm. |
-| Temperature | 65–70 °F | [2], [4]: warmth disturbs sleep. The handbook's ~65–68 °F ("according to experts") has no citation in its reference list; our range is slightly wider. |
-| Humidity | 40–60% RH | [4]: high humidity disturbs sleep. The 40–60% range and the 60% upper limit come from the handbook's summary (it also mentions the EPA's 30–50%), without a specific citation. |
+| eCO₂ | ≤ 800 ppm; 0 points at ≥ 2,000 ppm | [1], [2], [5]: better bedroom ventilation (lower CO₂) improves sleep quality. [3]: an average of ~1,000 ppm already measurably worsens sleep. |
+| Temperature | 65–70 °F | [2], [4]: a warm bedroom disturbs sleep. The exact 65–70 °F band is our choice, informed by these studies; they do not prescribe it. |
+| Humidity | 40–60% RH | [6]: adverse effects are minimized between 40 and 60%. [7]: keep indoor humidity below 60% (ideally 30–50%). [4]: high humidity disturbs sleep. |
 
 Caveats:
 - The CCS811 **estimates** CO₂ from VOCs (eCO₂). The studies measured real CO₂, so
   their thresholds are a guide for our estimated values, not a direct match.
-- We have read the titles and the handbook's summaries, not the full papers.
+- We have read the titles and abstracts, not every full paper.
 
-## Studies
+## Sources
 
 1. Fan, X., Liao, C., Bivolarova, M. P., Sekhar, C., Laverge, J., Lan, L., Mainka, A.,
    Akimoto, M., & Wargocki, P. (2022). A field intervention study of the effects of window
@@ -48,3 +47,10 @@ Caveats:
    and sleep quality in a high-density sub-tropical city. *Building and Environment, 247*,
    111024. https://doi.org/10.1016/j.buildenv.2023.111024
    — Label: "Yan et al., 2024"
+6. Arundel, A. V., Sterling, E. M., Biggin, J. H., & Sterling, T. D. (1986). Indirect health
+   effects of relative humidity in indoor environments. *Environmental Health Perspectives,
+   65*, 351–361. https://doi.org/10.1289/ehp.8665351
+   — Label: "Arundel et al., 1986"
+7. U.S. Environmental Protection Agency. A Brief Guide to Mold, Moisture and Your Home.
+   https://www.epa.gov/mold/brief-guide-mold-moisture-and-your-home
+   — Label: "US EPA mold and moisture guide"

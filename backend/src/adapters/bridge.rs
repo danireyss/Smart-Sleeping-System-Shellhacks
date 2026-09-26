@@ -144,7 +144,8 @@ fn parse_reading(params: &Value) -> Option<Reading> {
 fn number(v: &Value) -> Option<f64> {
     match v {
         Value::Integer(i) => i.as_f64(),
-        Value::F32(f) => Some(f64::from(*f)),
+        // Go through the shortest decimal form so 49.8f32 becomes 49.8, not 49.7999992...
+        Value::F32(f) => f.to_string().parse().ok(),
         Value::F64(f) => Some(*f),
         _ => None,
     }
@@ -199,6 +200,13 @@ mod tests {
         assert_eq!(r.eco2_ppm, 612.0);
         assert_eq!(r.temp_f, Some(68.0));
         assert_eq!(r.uptime_s, 1300);
+    }
+
+    #[test]
+    fn f32_values_keep_their_decimal_form() {
+        assert_eq!(number(&Value::F32(49.8)), Some(49.8));
+        assert_eq!(number(&Value::F32(77.72)), Some(77.72));
+        assert!(number(&Value::F32(f32::NAN)).unwrap().is_nan());
     }
 
     #[test]

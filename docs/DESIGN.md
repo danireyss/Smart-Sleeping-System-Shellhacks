@@ -13,16 +13,19 @@ Target: a laptop for the demo. Dark theme throughout.
   - color only when out of range
   - eCO₂ labeled "estimated"
 - Three small stacked charts for the last 6 hours, with the target band shaded.
-- A prominent "Start sleep mode" button.
+- When sleep mode is on, a banner: "Sleep mode is on — started 11:42 PM on the device".
 - A chat tile on the right.
 
 ## Sleep mode
 
-- Full-screen, true black, dim gray text.
-- Shows only the three measurements and the current score, with a small band dot.
-- No animation.
-- Press-and-hold "End sleep mode" in a corner.
-- Uses the Fullscreen API and Screen Wake Lock.
+Started and ended on the device's touch screen, not in the web UI.
+
+- **Device LCD:** a Sleep button (tap to start, 1.5 s long-press to end). While sleep mode
+  is on, the backlight is dimmed or off; no animation.
+- **Web Sleep tab (read-only):** "Sleep mode on since 11:42 PM", time in sleep mode, the
+  current score with a small band dot, and the three measurements, dim. When sleep mode
+  is off, it says how to start it on the device. Updates live when the device starts or
+  ends a session.
 
 ## Last night
 

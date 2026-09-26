@@ -6,16 +6,16 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
-use crate::domain::{Reading, ScoredReading};
+use crate::domain::{LiveEvent, Reading, ScoredReading};
 use crate::repositories::ReadingRepository;
 
 pub struct IngestService {
     repo: Arc<dyn ReadingRepository>,
-    events: broadcast::Sender<ScoredReading>,
+    events: broadcast::Sender<LiveEvent>,
 }
 
 impl IngestService {
-    pub fn new(repo: Arc<dyn ReadingRepository>, events: broadcast::Sender<ScoredReading>) -> Self {
+    pub fn new(repo: Arc<dyn ReadingRepository>, events: broadcast::Sender<LiveEvent>) -> Self {
         Self { repo, events }
     }
 
@@ -27,7 +27,7 @@ impl IngestService {
             return;
         }
         // An error only means nobody is subscribed right now.
-        let _ = self.events.send(scored);
+        let _ = self.events.send(LiveEvent::Reading(scored));
     }
 }
 
@@ -119,11 +119,12 @@ mod tests {
         let saved = repo.saved.lock().unwrap();
         assert_eq!(*saved, vec![(ok, vec![]), (warming.clone(), vec![Flag::WarmUp])]);
 
-        let first = rx.try_recv().unwrap();
+        let LiveEvent::Reading(first) = rx.try_recv().unwrap() else { panic!("expected a reading") };
         assert!(first.flags.is_empty());
         assert_eq!(first.score.unwrap().total, 100.0);
         let second = rx.try_recv().unwrap();
-        assert_eq!(second, ScoredReading { reading: warming, flags: vec![Flag::WarmUp], score: None });
+        let expected = ScoredReading { reading: warming, flags: vec![Flag::WarmUp], score: None };
+        assert_eq!(second, LiveEvent::Reading(expected));
     }
 
     #[test]

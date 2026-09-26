@@ -34,9 +34,22 @@ results. Scores the **room, not the person** — no health data.
 - **Deployment:** everything runs locally on the UNO Q; only the AI call goes to the cloud.
   Demo over phone hotspot / travel router. Optional Cloudflare Tunnel for judges.
 - **No policy engine / actuator** unless the core pipeline is done (stretch goal).
+- **Frontend:** Vite + React + TypeScript + Tailwind v4 + shadcn/ui + zod + Recharts in
+  `frontend/`. Built on a dev machine (`npm run build`); `frontend/dist` is committed and
+  embedded in the backend binary (rust-embed), so the board needs no Node and the UI
+  works offline. amicro animations only sparingly, never in sleep mode.
 - **Sleep sessions replace the fixed sleep window.** No bedtime/wake-time setting: the
-  user starts and ends a session (`POST /api/sleep/start` / `end`), and a night is the
-  span of one ended session. At most one session is open at a time.
+  user starts and ends a session, and a night is the span of one ended session. At most
+  one session is open at a time.
+- **Sleep mode lives on the device's 3" TFT touch screen** (wired to the MCU pins). Tap
+  starts it, a 1.5 s long-press ends it, and the backlight dims while it's on. The web UI
+  only shows sleep state (no start/end buttons). `POST /api/sleep/start|end` stay as a
+  curl fallback.
+- **Device protocol** (`domain/device.rs`): the sketch calls the backend with
+  `Bridge.call(method).result(value)`: `sleep_start` → `true`, `sleep_end` → `false`,
+  `sleep_state` → bool, `score` → latest total or `-1`. The bridge registers these next to
+  `reading` and answers via `DeviceService` (same services as the API; 3 s timeout →
+  RPC error). Never call `Bridge.call` inside a `Bridge.provide` callback (deadlock).
 - **Rounding at serialization.** eCO₂ and TVOC as integers; temperature, humidity, and
   all scores to 1 decimal, in every API response and SSE event, so the dashboard, the
   agent, and the grounding check see the same numbers. Flags, sub-scores, and stats are
@@ -50,14 +63,18 @@ Powered over USB-C only (no barrel jack).
 
 | Sensor pin | UNO Q pin | Note |
 | --- | --- | --- |
-| CCS811 VCC | 3.3V | power header |
-| CCS811 GND | GND | power header |
-| CCS811 WAKE | GND | **required**, second GND on power header |
+| Breadboard + / − rails | 3.3V / GND | the board's single 3.3V pin feeds both sensors |
+| CCS811 VCC | + rail (3.3V) | |
+| CCS811 GND | − rail | |
+| CCS811 WAKE | − rail | **required** |
 | CCS811 SDA / SCL | SDA / SCL | top-left header by AREF |
 | CCS811 INT, RST | not connected | |
-| DHT11 V | digital pin 7 | set OUTPUT HIGH in code (only one 3.3V pin) |
+| DHT11 V | + rail (3.3V) | was GPIO-powered before the breadboard; `DHT_POWER_PIN = -1` |
 | DHT11 S | digital pin 2 | data |
-| DHT11 G | GND | next to pin 13 |
+| DHT11 G | − rail | |
+| Screen (3.5" 480×320 SPI, ILI9486-style, 16-bit words) | LCD CS 10, DC 9, RST 8, SPI 11/12/13 | init + drawing in `firmware/sensor_bridge.ino` |
+| Touch (XPT2046) | CS 7, shared SPI at 1 MHz | calibration: SWAP_XY, FLIP_X |
+| Backlight | not connected (always on) | set `PIN_BACKLIGHT` to a PWM pin if the module has BL/LED |
 
 Sensor caveats:
 - CCS811 **estimates** CO₂ from VOCs (eCO₂). Floor is 400 ppm; ~20 min warm-up; breath
@@ -72,7 +89,7 @@ Sensor caveats:
   `Serial` — Serial printed nothing on this board.
 - Libraries must be added **per app** under "Sketch Libraries" in App Lab or the sketch
   silently fails to compile/upload. Used: "DHT sensor library" (Adafruit),
-  "Adafruit Unified Sensor", "Adafruit CCS811 Library".
+  "Adafruit Unified Sensor", "Adafruit CCS811 Library", "Adafruit GFX Library" (screen text).
 - Examples are read-only; use "Copy and edit app".
 - `LED_BUILTIN` is active-low.
 - Paste in the App Lab terminal with right-click, not Ctrl+V.
@@ -128,8 +145,9 @@ Implemented (server on `BIND_ADDR`, default `0.0.0.0:8080`):
   minutes. Use `Z` or URL-encode `+` offsets. 400 `{"error"}` on bad params.
 - `/api/readings?start=…Z&end=…Z`: every reading in `[start, end)`, oldest first, same
   shape as `/api/current` (for charts). Same params/errors as `/api/summary`.
-- `/api/stream`: SSE `event: reading`, data = same JSON as `/api/current`; 15 s keep-alives.
-  Ingest publishes only readings that were saved.
+- `/api/stream`: SSE `event: reading` (same JSON as `/api/current`; only saved readings)
+  and `event: sleep` (the session that just started or ended, from the LCD or the API);
+  15 s keep-alives.
 - `POST /api/sleep/start`: 201 + session `{id, started_at, ended_at: null}`; 409 if one is
   open. `POST /api/sleep/end`: 200 + closed session; 409 if none is open.
   `GET /api/sleep/current`: the open session or `null`. Times are server UTC.
@@ -209,7 +227,14 @@ Implemented in `services/agent_service.rs` (loop, tools, system prompt),
 - Demo: dashboard running → sanitizer spikes eCO₂ → score drops → ask agent why and show
   its tool calls → mention sensor-agnostic design (SCD41 is a one-driver upgrade).
 
-Frontend design (screens, states, band colors): [docs/DESIGN.md](docs/DESIGN.md).
+Frontend design (screens, states, band colors): [docs/DESIGN.md](docs/DESIGN.md), Figma
+file `u2jXvMjUHIPUtmDqzfo17A` (frames home-live-view, sleep-mode-active,
+sleep-morning-summary, history-morning-report). Implementation notes: `frontend/README.md`.
+UI rules: numbers shown exactly at API precision (eCO₂ whole, others 1 decimal); tile
+badges show range status ("In range" / "6.6 °F high"); sleep mode is shown read-only
+(started/ended on the device); no health claims in any copy. Routes `/`, `/sleep`, `/last-night` (the backend
+serves index.html for them). `GET /api/targets` gives the UI the same targets as the agent.
+**After changing the frontend, run `npm run build` in `frontend/` and commit `dist/`.**
 Sources for the scoring targets: [docs/REFERENCES.md](docs/REFERENCES.md) (the agent cites
 their author-year labels via get_targets).
 

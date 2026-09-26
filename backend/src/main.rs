@@ -16,7 +16,8 @@ use crate::adapters::llm_client::{ChatModel, OpenAiChatModel};
 use crate::config::Config;
 use crate::controllers::AppState;
 use crate::repositories::{SqliteReadingRepository, SqliteSessionRepository};
-use crate::services::{AgentService, IngestService, ReadingService, SleepService};
+use crate::adapters::bridge::{BridgeChannels, DeviceCall};
+use crate::services::{AgentService, DeviceService, IngestService, ReadingService, SleepService};
 
 #[tokio::main]
 async fn main() {
@@ -44,12 +45,28 @@ async fn main() {
     info!("database: {}", config.db_path);
 
     let (events, _) = broadcast::channel(64);
-    let ingest = IngestService::new(repo.clone(), events.clone());
-    let (tx, mut rx) = mpsc::channel(64);
-    adapters::bridge::spawn(config.router_socket, tx);
+    let readings = Arc::new(ReadingService::new(repo.clone()));
+    let sleep = Arc::new(SleepService::new(sessions, repo.clone(), events.clone()));
+
+    // Bridge → ingest (readings) and bridge → device service (LCD calls).
+    let ingest = IngestService::new(repo, events.clone());
+    let device = DeviceService::new(sleep.clone(), readings.clone());
+    let (readings_tx, mut readings_rx) = mpsc::channel(64);
+    let (device_tx, mut device_rx) = mpsc::channel::<DeviceCall>(16);
+    adapters::bridge::spawn(
+        config.router_socket,
+        BridgeChannels { readings: readings_tx, device: device_tx },
+    );
     tokio::spawn(async move {
-        while let Some(reading) = rx.recv().await {
+        while let Some(reading) = readings_rx.recv().await {
             ingest.handle(reading);
+        }
+    });
+    tokio::spawn(async move {
+        while let Some(call) = device_rx.recv().await {
+            let result = device.handle(call.request).await.map_err(|e| e.to_string());
+            // The bridge may have timed out and stopped waiting; that's fine.
+            let _ = call.reply.send(result);
         }
     });
 
@@ -66,8 +83,6 @@ async fn main() {
     if config.chat_token.is_none() {
         info!("chat is open to anyone who can reach the server (set CHAT_TOKEN to require a token)");
     }
-    let readings = Arc::new(ReadingService::new(repo.clone()));
-    let sleep = Arc::new(SleepService::new(sessions, repo));
     let state = AppState {
         agent: Arc::new(AgentService::new(model, readings.clone(), sleep.clone())),
         chat_token: config.chat_token.as_deref().map(Arc::from),

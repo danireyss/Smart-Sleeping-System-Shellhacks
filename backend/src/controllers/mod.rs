@@ -2,6 +2,7 @@
 //! services only.
 
 pub mod chat;
+pub mod frontend;
 pub mod readings;
 pub mod sleep;
 pub mod stream;
@@ -18,7 +19,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 use tracing::error;
 
-use crate::domain::ScoredReading;
+use crate::domain::LiveEvent;
 use crate::services::{AgentService, ReadingService, ServiceError, SleepService};
 
 #[derive(Clone)]
@@ -29,7 +30,7 @@ pub struct AppState {
     /// Shared token required by POST /api/chat, if set (it spends the LLM quota).
     pub chat_token: Option<Arc<str>>,
     /// Every stored reading, published by the ingest service.
-    pub events: broadcast::Sender<ScoredReading>,
+    pub events: broadcast::Sender<LiveEvent>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -37,12 +38,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/current", get(readings::current))
         .route("/api/readings", get(readings::readings))
         .route("/api/summary", get(readings::summary))
+        .route("/api/targets", get(readings::targets))
         .route("/api/stream", get(stream::stream))
         .route("/api/sleep/start", post(sleep::start))
         .route("/api/sleep/end", post(sleep::end))
         .route("/api/sleep/current", get(sleep::current))
         .route("/api/night/latest", get(sleep::latest_night))
         .route("/api/chat", post(chat::chat))
+        .fallback(frontend::serve)
         .with_state(state)
 }
 

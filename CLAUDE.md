@@ -72,8 +72,7 @@ Sensor caveats:
 ## Arduino router protocol (Linux side)
 
 The router (`arduino-router`, Go) is a MessagePack-RPC hub. Clients connect over a Unix
-socket (path TBD — find with `sudo ss -xlp | grep -i router`; likely
-`/var/run/arduino-router.sock`).
+socket at `/var/run/arduino-router.sock` (confirmed with `sudo ss -xlp | grep -i router`).
 - Register a method: `[0, msgid, "$/register", ["reading"]]` → `[1, msgid, null, true]`
 - Requests: `[0, msgid, method, params]`, responses: `[1, msgid, error, result]`,
   notifications: `[2, method, params]`.

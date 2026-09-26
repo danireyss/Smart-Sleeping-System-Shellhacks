@@ -1,10 +1,10 @@
 import { Moon } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { ChatTile } from '@/components/ChatTile'
 import { MetricCharts } from '@/components/MetricCharts'
 import { MetricTile } from '@/components/MetricTile'
-import { useLive, useNow, useReadings, useTargets } from '@/hooks/data'
+import { useLive, useNow, useReadings, useSleepSession, useTargets } from '@/hooks/data'
 import type { ScoredReading, Targets } from '@/lib/api'
 import {
   BAND_BG,
@@ -14,11 +14,12 @@ import {
   STALE_AFTER_MIN,
   liveState,
   minutesSince,
+  hoursMinutes,
   offTarget,
   tenths,
+  timeOfDay,
   whole,
 } from '@/lib/format'
-import { enterSleepMode } from '@/lib/sleep'
 import { cn } from '@/lib/utils'
 import { useRouter } from '@/router'
 
@@ -29,7 +30,7 @@ export function Home() {
   const { reading, unreachable } = useLive()
   const { targets, failed: targetsFailed } = useTargets()
   const now = useNow()
-  const [starting, setStarting] = useState(false)
+  const { session } = useSleepSession()
 
   // Chart window: last 6 hours, refetched each minute (and on each new reading).
   const minute = Math.floor(now / 60_000)
@@ -41,21 +42,23 @@ export function Home() {
   const lastMin = reading ? minutesSince(reading.received_at, now) : 0
   const stale = !!reading && lastMin >= STALE_AFTER_MIN
 
-  async function startSleep() {
-    setStarting(true)
-    try {
-      await enterSleepMode()
-      navigate('/sleep')
-    } catch (e) {
-      console.error('start sleep', e)
-    } finally {
-      setStarting(false)
-    }
-  }
-
   return (
     <main className="flex gap-8 p-10">
       <div className="flex min-w-0 flex-1 flex-col gap-8">
+        {session && (
+          <button
+            type="button"
+            onClick={() => navigate('/sleep')}
+            className="flex items-center gap-3 rounded-xl border border-great/40 bg-great/[0.07] px-4 py-3 text-left text-sm text-text"
+          >
+            <Moon className="size-4 shrink-0 text-great" aria-hidden />
+            <span>
+              Sleep mode is on — started {timeOfDay(session.started_at)} on the device,{' '}
+              {hoursMinutes((now - new Date(session.started_at).getTime()) / 60_000)} so far.
+            </span>
+          </button>
+        )}
+
         {unreachable && (
           <p className="rounded-xl border border-poor/50 bg-poor/[0.07] px-4 py-3 text-sm text-text">
             Can't reach the sensor hub. Showing the last data received.
@@ -114,16 +117,6 @@ export function Home() {
             <p className="text-sm text-text-muted">{targetsFailed ? 'Unavailable.' : 'Loading…'}</p>
           )}
         </section>
-
-        <button
-          type="button"
-          onClick={() => void startSleep()}
-          disabled={starting}
-          className="flex w-full items-center justify-center gap-3 rounded-xl bg-great px-6 py-4 text-sm font-medium tracking-[0.3px] text-bg transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
-          <Moon className="size-[18px]" aria-hidden />
-          Start sleep mode
-        </button>
       </div>
 
       <ChatTile className="w-[440px] shrink-0" />

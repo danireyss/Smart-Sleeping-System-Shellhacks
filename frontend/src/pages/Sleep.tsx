@@ -1,12 +1,12 @@
 import { Moon, Sun } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useState } from 'react'
 
 import { NightScoreBlock } from '@/components/NightScore'
-import { useLive, useNow, useTargets } from '@/hooks/data'
-import { nightHeadline, statsKey } from '@/lib/night'
-import { getLatestNight, getSleepCurrent, type NightReport, type SleepSession, type Targets } from '@/lib/api'
+import { useLive, useNow, useSleepSession, useTargets } from '@/hooks/data'
+import { getLatestNight, type NightReport, type SleepSession, type Targets } from '@/lib/api'
 import {
   BAND_BG,
+  BAND_LABEL,
   METRICS,
   STALE_AFTER_MIN,
   hoursMinutes,
@@ -14,110 +14,89 @@ import {
   longDate,
   minutesSince,
   tenths,
+  timeOfDay,
   withUnit,
 } from '@/lib/format'
-import { enterSleepMode, leaveSleepMode, requestFullscreen, useWakeLock } from '@/lib/sleep'
+import { nightHeadline, statsKey } from '@/lib/night'
 import { cn } from '@/lib/utils'
 import { useRouter } from '@/router'
 
-type View =
-  | { kind: 'loading' }
-  | { kind: 'idle' }
-  | { kind: 'active'; session: SleepSession }
-  | { kind: 'summary'; night: NightReport | null }
-
+/**
+ * Sleep mode is started and ended on the device's touch screen. This page shows
+ * its state live: the session in progress, how to start one, or, once a session
+ * ends while the page is open, the morning summary.
+ */
 export function Sleep() {
-  const [view, setView] = useState<View>({ kind: 'loading' })
+  const { session, justEnded } = useSleepSession()
+  const [night, setNight] = useState<NightReport | null | undefined>(undefined)
 
-  // Resume an open session after a reload or from another device.
   useEffect(() => {
-    getSleepCurrent().then(
-      (open) => setView(open ? { kind: 'active', session: open } : { kind: 'idle' }),
-      () => setView({ kind: 'idle' }),
-    )
-  }, [])
+    if (justEnded) getLatestNight().then(setNight, () => setNight(null))
+  }, [justEnded])
 
-  async function start() {
-    const session = await enterSleepMode()
-    setView({ kind: 'active', session })
-  }
-
-  async function end() {
-    await leaveSleepMode()
-    setView({ kind: 'summary', night: await getLatestNight() })
-  }
-
-  switch (view.kind) {
-    case 'loading':
-      return null
-    case 'idle':
-      return <Idle onStart={start} />
-    case 'active':
-      return <ActiveSleep session={view.session} onEnd={end} />
-    case 'summary':
-      return <MorningSummary night={view.night} />
-  }
+  if (session === undefined) return null
+  if (session) return <InProgress session={session} />
+  if (justEnded && night !== undefined) return <MorningSummary night={night} />
+  return <Off />
 }
 
-function Idle({ onStart }: { onStart: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false)
+function Off() {
+  const { navigate } = useRouter()
   return (
     <main className="flex min-h-[calc(100vh-72px)] flex-col items-center justify-center gap-8 p-20 text-center">
       <div className="flex size-[120px] items-center justify-center rounded-full bg-surface-2">
-        <Moon className="size-12 text-great" aria-hidden />
+        <Moon className="size-12 text-text-muted" aria-hidden />
       </div>
       <div className="flex max-w-md flex-col gap-2">
-        <h1 className="text-[22px] font-medium tracking-[-0.3px] text-text">Sleep mode</h1>
+        <h1 className="text-[22px] font-medium tracking-[-0.3px] text-text">Sleep mode is off</h1>
         <p className="text-[13px] leading-[1.65] text-text-muted">
-          Tracks the room from when you start until you end it. The screen goes dark and stays on.
+          Tap <span className="text-text">Sleep</span> on the device screen at bedtime. The screen dims,
+          and this page follows along. Hold the button to end sleep mode in the morning.
         </p>
       </div>
       <button
         type="button"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true)
-          onStart().finally(() => setBusy(false))
-        }}
-        className="flex items-center gap-3 rounded-full bg-great px-8 py-3 text-sm font-semibold text-bg hover:opacity-90 disabled:opacity-60"
+        onClick={() => navigate('/last-night')}
+        className="rounded-full border border-line px-8 py-3 text-sm font-semibold text-text-muted hover:text-text"
       >
-        <Moon className="size-4" aria-hidden />
-        Start sleep mode
+        View last night
       </button>
     </main>
   )
 }
 
-/** Full screen, true black, dim text, no motion. Hold the corner button to end. */
-function ActiveSleep({ session, onEnd }: { session: SleepSession; onEnd: () => Promise<void> }) {
-  useWakeLock()
+/** Read-only view of the session in progress. Dim, no motion. */
+function InProgress({ session }: { session: SleepSession }) {
   const now = useNow(30_000)
   const { reading } = useLive()
   const { targets } = useTargets()
-  const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement)
-
-  useEffect(() => {
-    const onChange = () => setFullscreen(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
-  }, [])
-
   const elapsed = hoursMinutes((now - new Date(session.started_at).getTime()) / 60_000)
   const state = liveState(reading, targets)
   const stale = !!reading && minutesSince(reading.received_at, now) >= STALE_AFTER_MIN
 
   return (
-    <div className="sleep-mode fixed inset-0 z-50 flex flex-col items-center justify-center gap-12 bg-black text-[#5a5f67] select-none">
-      <div className="flex flex-col items-center gap-2">
-        <p className="text-[96px] leading-none font-thin tracking-[-3px] text-[#6b7079]">{elapsed}</p>
-        <p className="text-sm tracking-[0.1px]">Time in sleep mode</p>
+    <main className="flex min-h-[calc(100vh-72px)] flex-col items-center justify-center gap-12 p-20 text-center">
+      <div className="flex flex-col items-center gap-4">
+        <div className="flex size-[120px] items-center justify-center rounded-full bg-surface-2">
+          <Moon className="size-12 text-great" aria-hidden />
+        </div>
+        <p className="text-base tracking-[0.5px] text-text-muted">
+          Sleep mode on since {timeOfDay(session.started_at)}
+        </p>
       </div>
 
-      <div className="flex items-center gap-2 text-base">
+      <div className="flex flex-col items-center gap-2">
+        <p className="text-[96px] leading-none font-thin tracking-[-3px] text-text">{elapsed}</p>
+        <p className="text-sm tracking-[0.1px] text-text-dim uppercase">Time in sleep mode</p>
+      </div>
+
+      <div className="flex items-center gap-2 text-base text-text-muted">
         {state.kind === 'ok' && reading?.score ? (
           <>
-            <span className={cn('size-1.5 rounded-full opacity-60', BAND_BG[reading.score.band])} />
-            <span>Score {tenths(reading.score.total)}</span>
+            <span className={cn('size-1.5 rounded-full', BAND_BG[reading.score.band])} />
+            <span>
+              Score {tenths(reading.score.total)} · {BAND_LABEL[reading.score.band]}
+            </span>
           </>
         ) : state.kind === 'warming-up' ? (
           <span>Score — · sensor warming up, scores in {state.minutesLeft} min</span>
@@ -126,96 +105,25 @@ function ActiveSleep({ session, onEnd }: { session: SleepSession; onEnd: () => P
         )}
       </div>
 
-      <div className={cn('flex gap-10 text-base', stale && 'opacity-50')}>
+      <div className={cn('flex gap-4', stale && 'opacity-40')}>
         {METRICS.map((m) => {
           const v = reading ? m.value(reading) : null
           return (
-            <p key={m.key}>
-              {v === null ? '—' : withUnit(m, v)} <span className="text-xs">{m.short}</span>
-            </p>
+            <div key={m.key} className="flex items-center gap-2.5 rounded-full bg-surface px-5 py-3">
+              <span className="text-base font-medium tracking-[-0.2px] text-text">
+                {v === null ? '—' : withUnit(m, v)}
+              </span>
+              <span className="text-xs tracking-[0.15px] text-text-muted">{m.short}</span>
+            </div>
           )
         })}
       </div>
       {stale && reading && (
-        <p className="text-xs">Last reading {minutesSince(reading.received_at, now)} min ago</p>
+        <p className="text-xs text-fair">Last reading {minutesSince(reading.received_at, now)} min ago</p>
       )}
 
-      {!fullscreen && (
-        <button type="button" onClick={requestFullscreen} className="absolute top-6 left-6 text-xs text-[#3a3e44]">
-          Full screen
-        </button>
-      )}
-      <HoldToEnd onComplete={onEnd} />
-    </div>
-  )
-}
-
-const HOLD_MS = 1500
-
-/** Press and hold for 1.5 s to end (mouse, touch, or Enter/Space). */
-function HoldToEnd({ onComplete }: { onComplete: () => Promise<void> }) {
-  const [progress, setProgress] = useState(0)
-  const [ending, setEnding] = useState(false)
-  const frame = useRef<number | null>(null)
-  const startedAt = useRef<number | null>(null)
-
-  const cancel = () => {
-    if (frame.current !== null) cancelAnimationFrame(frame.current)
-    frame.current = null
-    startedAt.current = null
-    setProgress(0)
-  }
-
-  const begin = () => {
-    if (ending || startedAt.current !== null) return
-    startedAt.current = performance.now()
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - startedAt.current!) / HOLD_MS)
-      setProgress(p)
-      if (p >= 1) {
-        frame.current = null
-        startedAt.current = null
-        setEnding(true)
-        onComplete().catch(() => {
-          setEnding(false)
-          setProgress(0)
-        })
-      } else {
-        frame.current = requestAnimationFrame(tick)
-      }
-    }
-    frame.current = requestAnimationFrame(tick)
-  }
-
-  useEffect(() => cancel, [])
-
-  const onKey = (e: KeyboardEvent, down: boolean) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return
-    e.preventDefault()
-    if (down && !e.repeat) begin()
-    if (!down) cancel()
-  }
-
-  return (
-    <button
-      type="button"
-      onPointerDown={begin}
-      onPointerUp={cancel}
-      onPointerLeave={cancel}
-      onPointerCancel={cancel}
-      onKeyDown={(e) => onKey(e, true)}
-      onKeyUp={(e) => onKey(e, false)}
-      onContextMenu={(e) => e.preventDefault()}
-      aria-label="Hold to end sleep mode"
-      className="absolute right-6 bottom-6 overflow-hidden rounded-full border border-[#1d2128] px-5 py-2.5 text-xs text-[#5a5f67]"
-    >
-      <span
-        className="absolute inset-y-0 left-0 bg-[#1d2128]"
-        style={{ width: `${progress * 100}%` }}
-        aria-hidden
-      />
-      <span className="relative">{ending ? 'Ending…' : 'Hold to end sleep mode'}</span>
-    </button>
+      <p className="text-xs text-text-dim">To end sleep mode, hold the button on the device screen.</p>
+    </main>
   )
 }
 

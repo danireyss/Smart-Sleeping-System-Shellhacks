@@ -91,10 +91,3 @@
     @apply bg-bg text-text font-sans antialiased;
   }
 }
-
-/* Sleep mode: no motion at all, even if a component asks for it. */
-.sleep-mode,
-.sleep-mode * {
-  animation: none !important;
-  transition: none !important;
-}

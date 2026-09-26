@@ -82,12 +82,6 @@ async function getJson<T>(path: string, schema: z.ZodType<T>): Promise<T> {
   return schema.parse(await res.json())
 }
 
-async function postJson<T>(path: string, schema: z.ZodType<T>): Promise<T> {
-  const res = await fetch(path, { method: 'POST' })
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`)
-  return schema.parse(await res.json())
-}
-
 /** Latest reading, or null when there are no readings yet. */
 export async function getCurrent(): Promise<ScoredReading | null> {
   try {
@@ -104,9 +98,9 @@ export function getReadings(start: Date, end: Date): Promise<ScoredReading[]> {
 }
 
 export const getTargets = () => getJson('/api/targets', Targets)
+// Sleep mode is started and ended on the device LCD (or POST /api/sleep/start|end
+// with curl as a fallback); the web UI only shows its state.
 export const getSleepCurrent = () => getJson('/api/sleep/current', SleepSession.nullable())
-export const startSleep = () => postJson('/api/sleep/start', SleepSession)
-export const endSleep = () => postJson('/api/sleep/end', SleepSession)
 
 /** Report for the last ended session, or null if none has ended. */
 export async function getLatestNight(): Promise<NightReport | null> {

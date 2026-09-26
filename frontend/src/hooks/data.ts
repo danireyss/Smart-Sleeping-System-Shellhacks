@@ -4,8 +4,10 @@ import {
   getCurrent,
   getLatestNight,
   getReadings,
+  getSleepCurrent,
   getTargets,
   ScoredReading,
+  SleepSession,
   type NightReport,
   type ScoredReading as Reading,
   type Targets,
@@ -81,6 +83,48 @@ export function useLive(): Live {
   }, [])
 
   return { reading, unreachable }
+}
+
+export interface SleepState {
+  /** The open session; null when sleep mode is off; undefined while loading. */
+  session: SleepSession | null | undefined
+  /** The session that ended while this page was open, if any. */
+  justEnded: SleepSession | null
+}
+
+/**
+ * Sleep mode as set on the device LCD: loaded once, then updated live from the
+ * `sleep` events on /api/stream (sent on every start and end).
+ */
+export function useSleepSession(): SleepState {
+  const [state, setState] = useState<SleepState>({ session: undefined, justEnded: null })
+
+  useEffect(() => {
+    let cancelled = false
+    const load = () =>
+      getSleepCurrent().then(
+        (open) => !cancelled && setState((s) => ({ ...s, session: open })),
+        (e) => console.error('sleep', e),
+      )
+    load()
+
+    const stream = new EventSource('/api/stream')
+    stream.addEventListener('sleep', (e) => {
+      const parsed = SleepSession.safeParse(JSON.parse((e as MessageEvent).data))
+      if (!parsed.success) return
+      const s = parsed.data
+      setState(s.ended_at === null ? { session: s, justEnded: null } : { session: null, justEnded: s })
+    })
+    stream.onopen = load // catch up after reconnecting
+    const poll = setInterval(load, 60_000)
+    return () => {
+      cancelled = true
+      stream.close()
+      clearInterval(poll)
+    }
+  }, [])
+
+  return state
 }
 
 /** Readings in [start, end), refetched when `refreshKey` changes. */

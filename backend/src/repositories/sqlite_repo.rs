@@ -7,12 +7,16 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use rusqlite::{params, Connection};
+use chrono::{DateTime, Utc};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::{ReadingRepository, RepoError};
 use crate::domain::{Flag, Reading};
 
 const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
+
+const SELECT_READING: &str =
+    "SELECT received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s FROM readings";
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS readings (
@@ -60,7 +64,7 @@ impl ReadingRepository for SqliteReadingRepository {
                 (received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s, flags)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
-                reading.received_at.format(TIMESTAMP_FORMAT).to_string(),
+                timestamp(reading.received_at),
                 reading.eco2_ppm,
                 reading.tvoc_ppb,
                 reading.temp_f,
@@ -71,6 +75,46 @@ impl ReadingRepository for SqliteReadingRepository {
         )?;
         Ok(conn.last_insert_rowid())
     }
+
+    fn latest(&self) -> Result<Option<Reading>, RepoError> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let sql = format!("{SELECT_READING} ORDER BY received_at DESC, id DESC LIMIT 1");
+        let row = conn.query_row(&sql, [], raw_row).optional()?;
+        row.map(to_reading).transpose()
+    }
+
+    fn range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<Reading>, RepoError> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let sql = format!(
+            "{SELECT_READING} WHERE received_at >= ?1 AND received_at < ?2 ORDER BY received_at, id"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![timestamp(start), timestamp(end)], raw_row)?;
+        rows.map(|row| to_reading(row?)).collect()
+    }
+}
+
+fn timestamp(t: DateTime<Utc>) -> String {
+    t.format(TIMESTAMP_FORMAT).to_string()
+}
+
+type RawRow = (String, f64, f64, Option<f64>, Option<f64>, i64);
+
+fn raw_row(row: &Row) -> rusqlite::Result<RawRow> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+}
+
+fn to_reading(
+    (received_at, eco2_ppm, tvoc_ppb, temp_f, humidity_pct, uptime_s): RawRow,
+) -> Result<Reading, RepoError> {
+    Ok(Reading {
+        received_at: DateTime::parse_from_rfc3339(&received_at)?.with_timezone(&Utc),
+        eco2_ppm,
+        tvoc_ppb,
+        temp_f,
+        humidity_pct,
+        uptime_s: u64::try_from(uptime_s)?,
+    })
 }
 
 #[cfg(test)]
@@ -130,6 +174,46 @@ mod tests {
         let (_, _, _, temp, humidity, _, flags) = row(&repo, id);
         assert_eq!((temp, humidity), (None, None));
         assert_eq!(flags, "warm_up,temp_missing,humidity_missing");
+    }
+
+    #[test]
+    fn latest_returns_newest_reading() {
+        let repo = SqliteReadingRepository::in_memory().unwrap();
+        assert_eq!(repo.latest().unwrap(), None);
+
+        let older = reading();
+        let newer = Reading {
+            received_at: older.received_at + chrono::Duration::seconds(10),
+            temp_f: None,
+            ..reading()
+        };
+        repo.save(&newer, &[]).unwrap();
+        repo.save(&older, &[]).unwrap();
+        assert_eq!(repo.latest().unwrap(), Some(newer));
+    }
+
+    #[test]
+    fn range_is_half_open_and_ordered() {
+        let repo = SqliteReadingRepository::in_memory().unwrap();
+        let t0 = reading().received_at;
+        let at = |secs| Reading { received_at: t0 + chrono::Duration::seconds(secs), ..reading() };
+        for secs in [20, 0, 10, 30] {
+            repo.save(&at(secs), &[]).unwrap();
+        }
+        let got = repo.range(t0, t0 + chrono::Duration::seconds(30)).unwrap();
+        assert_eq!(got, vec![at(0), at(10), at(20)]);
+    }
+
+    #[test]
+    fn round_trips_millisecond_timestamps() {
+        let repo = SqliteReadingRepository::in_memory().unwrap();
+        let r = Reading {
+            received_at: Utc.with_ymd_and_hms(2026, 9, 26, 6, 7, 53).unwrap()
+                + chrono::Duration::milliseconds(673),
+            ..reading()
+        };
+        repo.save(&r, &[]).unwrap();
+        assert_eq!(repo.latest().unwrap(), Some(r));
     }
 
     #[test]

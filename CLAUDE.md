@@ -55,8 +55,9 @@ results. Scores the **room, not the person** — no health data.
   `SOUND_CAL_DB` so a steady loud sound (~60 dB) matches a phone sound-meter app, then set
   `SOUND_FLOOR_DB` (the mic's self-noise, C922 at Mic Capture Volume 8 ≈ 41.5 dB) so a
   silent room matches too; it's subtracted as energy (`ambient::minus_noise_floor`), so
-  loud readings barely change. Mic Capture Volume must stay at 8 (a replugged webcam
-  resets it to 15, which reads ~14 dB high).
+  loud readings barely change. Mic Capture Volume must stay at 8: PipeWire resets it
+  to 15 (reads ~14 dB high) when the device is reopened, so `MIC_CAPTURE_VOLUME=8` makes
+  the backend set it with `amixer` when recording starts and every minute.
 - **Device protocol** (`domain/device.rs`): the sketch calls the backend with
   `Bridge.call(method).result(value)`: `sleep_start` → `true`, `sleep_end` → `false`,
   `sleep_state` → bool, `score` → latest total or `-1`. The bridge registers these next to

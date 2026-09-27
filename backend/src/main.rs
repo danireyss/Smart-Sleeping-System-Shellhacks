@@ -66,8 +66,9 @@ async fn main() {
                 offset_db: config.sound_calibration_db,
                 floor_db: config.sound_floor_db,
             };
-            info!("sound level from microphone {device} ({calibration:?})");
-            adapters::microphone::spawn(device.clone(), calibration, ambient.clone());
+            let volume = config.mic_capture_volume;
+            info!("sound level from microphone {device} ({calibration:?}, capture volume {volume:?})");
+            adapters::microphone::spawn(device.clone(), calibration, volume, ambient.clone());
         }
         None => info!("no sound level (set MIC_DEVICE to enable)"),
     }

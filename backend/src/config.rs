@@ -26,6 +26,9 @@ pub struct Config {
     /// The microphone's own noise level (calibrated dB), removed from every reading
     /// so quiet rooms aren't overstated; `None` = no correction.
     pub sound_floor_db: Option<f64>,
+    /// Mic gain (ALSA "Mic Capture Volume") the calibration was made at, kept
+    /// set by the backend; `None` = leave it alone.
+    pub mic_capture_volume: Option<u32>,
 }
 
 impl Config {
@@ -45,6 +48,7 @@ impl Config {
             mic_device: non_empty("MIC_DEVICE"),
             sound_calibration_db: parsed("SOUND_CAL_DB", 90.0),
             sound_floor_db: non_empty("SOUND_FLOOR_DB").and_then(|v| v.trim().parse().ok()),
+            mic_capture_volume: non_empty("MIC_CAPTURE_VOLUME").and_then(|v| v.trim().parse().ok()),
         }
     }
 }

@@ -10,6 +10,9 @@ export const MinuteScore = z.object({
   eco2: z.number(),
   temp: z.number(),
   humidity: z.number(),
+  // Webcam sub-scores: null (or absent on older backends) without webcam data.
+  light: z.number().nullish(),
+  sound: z.number().nullish(),
   total: z.number(),
   band: Band,
 })
@@ -22,6 +25,9 @@ export const ScoredReading = z.object({
   temp_f: z.number().nullable(),
   humidity_pct: z.number().nullable(),
   uptime_s: z.number(),
+  light_level: z.number().nullish(),
+  sound_db: z.number().nullish(),
+  sound_peak_db: z.number().nullish(),
   flags: z.array(z.string()),
   score: MinuteScore.nullable(),
 })
@@ -32,6 +38,8 @@ export const MetricStats = z.object({
   min: z.number(),
   max: z.number(),
   avg_score: z.number(),
+  /** Minutes with a value for this metric (absent on older backends). */
+  minutes: z.number().nullish(),
   minutes_out_of_range: z.number(),
 })
 export type MetricStats = z.infer<typeof MetricStats>
@@ -59,9 +67,28 @@ export const NightReport = z.object({
   eco2_ppm: MetricStats.nullable(),
   temp_f: MetricStats.nullable(),
   humidity_pct: MetricStats.nullable(),
+  light_level: MetricStats.nullish(),
+  sound_db: MetricStats.nullish(),
+  noise_events: z
+    .object({ count: z.number(), threshold_db: z.number(), starts: z.array(z.string()) })
+    .nullish(),
   lowest_metric: z.object({ metric: z.string(), avg_score: z.number() }).nullable(),
 })
 export type NightReport = z.infer<typeof NightReport>
+
+/** One finished night for the history calendar. */
+export const NightSummary = z.object({
+  session_id: z.number(),
+  started_at: z.string(),
+  ended_at: z.string(),
+  duration_minutes: z.number(),
+  short_session: z.boolean(),
+  score: z.number().nullable(),
+  band: Band.nullable(),
+  completeness_pct: z.number(),
+  incomplete: z.boolean(),
+})
+export type NightSummary = z.infer<typeof NightSummary>
 
 const Range = z.object({ target_min: z.number(), target_max: z.number() })
 export const Targets = z.object({
@@ -69,6 +96,15 @@ export const Targets = z.object({
   temp_f: Range.extend({ zero_points_at_or_below: z.number(), zero_points_at_or_above: z.number() }),
   humidity_pct: Range.extend({ zero_points_at_or_below: z.number(), zero_points_at_or_above: z.number() }),
   sensor_warm_up_minutes: z.number(),
+  // Absent on backends without webcam support.
+  light_level: z.object({ full_points_at_or_below: z.number(), zero_points_at_or_above: z.number() }).optional(),
+  sound_db: z
+    .object({
+      full_points_at_or_below: z.number(),
+      zero_points_at_or_above: z.number(),
+      noise_event_peak_above: z.number(),
+    })
+    .optional(),
 })
 export type Targets = z.infer<typeof Targets>
 
@@ -111,3 +147,16 @@ export async function getLatestNight(): Promise<NightReport | null> {
     throw e
   }
 }
+
+/** Report for one night, or null if it doesn't exist (or hasn't ended). */
+export async function getNight(id: number): Promise<NightReport | null> {
+  try {
+    return await getJson(`/api/night/${id}`, NightReport)
+  } catch (e) {
+    if (e instanceof NotFound) return null
+    throw e
+  }
+}
+
+/** Every finished night, most recent first. */
+export const getNights = () => getJson('/api/nights', z.array(NightSummary))

@@ -32,6 +32,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::domain::device::{DeviceReply, DeviceRequest};
+use crate::domain::ambient::Ambient;
 use crate::domain::Reading;
 
 const READING: &str = "reading";
@@ -204,6 +205,7 @@ fn parse_reading(params: &Value) -> Option<Reading> {
         temp_f: number(&p[2]).filter(|v| !v.is_nan()),
         humidity_pct: number(&p[3]).filter(|v| !v.is_nan()),
         uptime_s: uptime as u64,
+        ambient: Ambient::default(),
     })
 }
 

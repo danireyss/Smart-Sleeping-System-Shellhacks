@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use super::reading::WARM_UP_SECS;
 use super::scoring::{
-    ECO2_FULL_PPM, ECO2_ZERO_PPM, HUMIDITY_POINTS_PER_PCT, HUMIDITY_TARGET_PCT,
-    TEMP_POINTS_PER_F, TEMP_TARGET_F,
+    ECO2_FULL_PPM, ECO2_ZERO_PPM, HUMIDITY_POINTS_PER_PCT, HUMIDITY_TARGET_PCT, LIGHT_FULL,
+    LIGHT_ZERO, NOISE_EVENT_DB, SOUND_FULL_DB, SOUND_ZERO_DB, TEMP_POINTS_PER_F, TEMP_TARGET_F,
 };
 use super::sleep::{INCOMPLETE_BELOW_PCT, SHORT_SESSION_SECS};
 
@@ -40,7 +40,20 @@ pub fn targets() -> Value {
             "zero_points_at_or_above": rh_max + 100.0 / HUMIDITY_POINTS_PER_PCT,
             "sources": ["Arundel et al., 1986", "US EPA mold and moisture guide", "Okamoto-Mizuno et al., 1999"],
         },
-        "score": "average of the three 0-100 sub-scores",
+        "light_level": {
+            "note": "estimated light level from the webcam, relative 0-100 (not lux); thresholds are placeholders pending calibration",
+            "full_points_at_or_below": LIGHT_FULL,
+            "zero_points_at_or_above": LIGHT_ZERO,
+            "sources": ["Mason et al., 2022"],
+        },
+        "sound_db": {
+            "note": "estimated sound level (Leq over each minute) from the webcam microphone, calibrated, not A-weighted",
+            "full_points_at_or_below": SOUND_FULL_DB,
+            "zero_points_at_or_above": SOUND_ZERO_DB,
+            "noise_event_peak_above": NOISE_EVENT_DB,
+            "sources": ["WHO Guidelines for Community Noise, 1999"],
+        },
+        "score": "average of the available 0-100 sub-scores (eCO2, temperature, humidity, plus light and sound when the webcam provides them)",
         "bands": { "great_min": 90, "good_min": 80, "fair_min": 70, "poor": "below 70" },
         "incomplete_night_below_pct": INCOMPLETE_BELOW_PCT,
         "short_session_under_minutes": SHORT_SESSION_SECS / 60,
@@ -70,5 +83,8 @@ mod tests {
         assert_eq!(t["incomplete_night_below_pct"], 60.0);
         assert_eq!(t["short_session_under_minutes"], 60);
         assert_eq!(t["sensor_warm_up_minutes"], 20);
+        assert_eq!(t["sound_db"]["full_points_at_or_below"], 30.0);
+        assert_eq!(t["sound_db"]["noise_event_peak_above"], 45.0);
+        assert_eq!(t["light_level"]["zero_points_at_or_above"], 40.0);
     }
 }

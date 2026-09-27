@@ -15,6 +15,14 @@ pub struct Config {
     pub llm_model: Option<String>,
     /// When set, POST /api/chat requires `Authorization: Bearer <token>`.
     pub chat_token: Option<String>,
+    /// Webcam video device for the light level (e.g. /dev/video0); `None` = off.
+    pub camera_device: Option<String>,
+    /// Fixed exposure time while measuring light (the driver's units, usually 100 µs).
+    pub camera_exposure: i64,
+    /// ALSA capture device for the sound level (e.g. plughw:CARD=C920,DEV=0); `None` = off.
+    pub mic_device: Option<String>,
+    /// Added to dBFS to estimate dB SPL; set by calibrating against a sound meter.
+    pub sound_calibration_db: f64,
 }
 
 impl Config {
@@ -29,10 +37,18 @@ impl Config {
             llm_api_key: non_empty("LLM_API_KEY"),
             llm_model: non_empty("LLM_MODEL"),
             chat_token: non_empty("CHAT_TOKEN"),
+            camera_device: non_empty("CAMERA_DEVICE"),
+            camera_exposure: parsed("CAMERA_EXPOSURE", 300),
+            mic_device: non_empty("MIC_DEVICE"),
+            sound_calibration_db: parsed("SOUND_CAL_DB", 90.0),
         }
     }
 }
 
 fn non_empty(key: &str) -> Option<String> {
     env::var(key).ok().filter(|v| !v.trim().is_empty())
+}
+
+fn parsed<T: std::str::FromStr>(key: &str, default: T) -> T {
+    non_empty(key).and_then(|v| v.trim().parse().ok()).unwrap_or(default)
 }

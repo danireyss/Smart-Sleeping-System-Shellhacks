@@ -4,6 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 
+use super::ambient::Ambient;
 use super::round::{self, round1};
 
 /// CCS811 needs ~20 minutes after power-on before eCO₂ is meaningful.
@@ -30,6 +31,9 @@ pub struct Reading {
     pub humidity_pct: Option<f64>,
     /// Seconds since the sketch started, used for CCS811 warm-up.
     pub uptime_s: u64,
+    /// Light and sound from the webcam, if a fresh sample was available.
+    #[serde(flatten)]
+    pub ambient: Ambient,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +78,11 @@ impl Reading {
             tvoc_ppb: self.tvoc_ppb.round(),
             temp_f: self.temp_f.map(round1),
             humidity_pct: self.humidity_pct.map(round1),
+            ambient: Ambient {
+                light_level: self.ambient.light_level.map(round1),
+                sound_db: self.ambient.sound_db.map(round1),
+                sound_peak_db: self.ambient.sound_peak_db.map(round1),
+            },
             ..self.clone()
         }
     }
@@ -121,6 +130,7 @@ mod tests {
             temp_f: Some(68.0),
             humidity_pct: Some(45.0),
             uptime_s: WARM_UP_SECS,
+            ambient: Ambient::default(),
         }
     }
 

@@ -202,7 +202,9 @@ fn assistant_tool_message(text: &str, calls: &[ToolCall]) -> Value {
 pub fn system_prompt(now: DateTime<Utc>) -> String {
     format!(
         "You are the assistant for a bedroom sleep-environment monitor. It measures the room \
-(estimated CO2, temperature, humidity) and scores the room, not the person.
+(estimated CO2, temperature, humidity, and, when a webcam is connected, an estimated light level \
+and estimated sound level) and scores the room, not the person. The webcam only produces those \
+two numbers: no images or audio are kept, so never describe what the camera sees or hears.
 
 Current time: {now} (UTC). Times in tool results are UTC.
 
@@ -213,7 +215,9 @@ mention numbers. Copy numbers exactly as the tools return them. Do not calculate
 (no differences, conversions, or averages) and do not use numbered lists.
 - If a tool result is missing data (an error, no readings, readings flagged during sensor \
 warm-up), say so plainly. Never estimate or guess.
-- Always call CO2 values \"estimated (eCO2)\".
+- Always call CO2 values \"estimated (eCO2)\", light values \"estimated light level\" (a relative \
+0-100 scale, not lux), and sound values \"estimated sound level\" in dB. Light and sound fields are \
+null when no webcam data was available; then don't mention them.
 - When recommending something, name the metric, its value, its target (from get_targets), and \
 one concrete action. Describe the action in words and point to the target range exactly as \
 get_targets gives it (e.g. \"cool the room into the 65-70 °F target\"); never suggest a specific \
@@ -270,6 +274,7 @@ pub fn tool_definitions() -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::ambient::Ambient;
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
@@ -348,6 +353,7 @@ mod tests {
             temp_f: Some(75.9),
             humidity_pct: Some(51.9),
             uptime_s: WARM_UP_SECS,
+            ambient: Ambient::default(),
         }
     }
 
@@ -546,6 +552,8 @@ mod tests {
         assert!(prompt.contains("2026-09-26T16:00:00Z"));
         assert!(prompt.contains("must come from a tool result in this turn"));
         assert!(prompt.contains("estimated (eCO2)"));
+        assert!(prompt.contains("estimated light level"));
+        assert!(prompt.contains("never describe what the camera sees"));
         assert!(prompt.contains("its target"));
         assert!(prompt.contains("never suggest a specific"));
         assert!(prompt.contains("No medical advice"));

@@ -65,6 +65,7 @@ pub async fn summary(
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::ambient::Ambient;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use chrono::{Duration, TimeZone};
@@ -88,6 +89,7 @@ mod tests {
             temp_f: Some(temp),
             humidity_pct: Some(45.0),
             uptime_s: WARM_UP_SECS,
+            ambient: Ambient::default(),
         }
     }
 

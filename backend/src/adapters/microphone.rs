@@ -1,0 +1,89 @@
+//! Webcam microphone sound level, via `arecord` (package `alsa-utils`).
+//!
+//! Records 16 kHz mono continuously, analyzes it in 125 ms windows, and every
+//! minute records Leq and Lmax (dBFS plus the calibration offset = estimated
+//! dB). Audio is analyzed in memory and dropped: nothing is ever stored.
+
+use std::io::{self, Read};
+use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+use chrono::{SubsecRound, Utc};
+use tokio::task::JoinHandle;
+use tracing::{info, warn};
+
+use crate::domain::ambient::{SoundMinute, WINDOW_SAMPLES};
+use crate::services::AmbientService;
+
+/// 60 s of 125 ms windows.
+const WINDOWS_PER_MINUTE: usize = 480;
+const RESTART_DELAY: Duration = Duration::from_secs(10);
+
+pub fn spawn(device: String, calibration_db: f64, ambient: Arc<AmbientService>) -> JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        let mut failing = false;
+        loop {
+            match record(&device, calibration_db, &ambient, &mut failing) {
+                Ok(()) => warn!("microphone {device}: arecord stopped"),
+                Err(e) if !failing => {
+                    warn!("microphone {device}: {e}");
+                    failing = true;
+                }
+                Err(_) => {}
+            }
+            thread::sleep(RESTART_DELAY);
+        }
+    })
+}
+
+fn record(device: &str, calibration_db: f64, ambient: &AmbientService, failing: &mut bool) -> io::Result<()> {
+    let mut child: Child = Command::new("arecord")
+        .args(["-q", "-D", device, "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "raw"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let mut out = child.stdout.take().ok_or_else(|| io::Error::other("no stdout"))?;
+
+    let mut bytes = vec![0u8; WINDOW_SAMPLES * 2];
+    let mut minute = SoundMinute::default();
+    let result = loop {
+        if let Err(e) = out.read_exact(&mut bytes) {
+            break Err(e);
+        }
+        if *failing {
+            info!("microphone {device}: recording again");
+            *failing = false;
+        }
+        minute.add_window(&samples(&bytes));
+        if minute.windows() >= WINDOWS_PER_MINUTE {
+            if let Some((leq, lmax)) = minute.finish() {
+                ambient.record_sound(leq + calibration_db, lmax + calibration_db, Utc::now().trunc_subsecs(3));
+            }
+            minute = SoundMinute::default();
+        }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    match result {
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => Ok(()),
+        other => other,
+    }
+}
+
+/// Little-endian 16-bit samples.
+pub fn samples(bytes: &[u8]) -> Vec<i16> {
+    bytes.as_chunks::<2>().0.iter().map(|&b| i16::from_le_bytes(b)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_little_endian_samples() {
+        assert_eq!(samples(&[0x00, 0x80, 0xff, 0x7f, 0x01, 0x00]), vec![-32768, 32767, 1]);
+        assert_eq!(samples(&[0x01]), Vec::<i16>::new());
+    }
+}

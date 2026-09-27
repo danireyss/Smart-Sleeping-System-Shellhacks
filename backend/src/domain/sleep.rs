@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use super::round::{self, round1};
 use super::scoring::{band, Band};
-use super::summary::{summarize, MetricStats};
+use super::summary::{summarize, MetricStats, NoiseEvents};
 use super::Reading;
 
 pub const INCOMPLETE_BELOW_PCT: f64 = 60.0;
@@ -55,14 +55,50 @@ pub struct NightReport {
     pub eco2_ppm: Option<MetricStats>,
     pub temp_f: Option<MetricStats>,
     pub humidity_pct: Option<MetricStats>,
+    /// Webcam light and sound; `None` when there were no samples this night.
+    pub light_level: Option<MetricStats>,
+    pub sound_db: Option<MetricStats>,
+    pub noise_events: NoiseEvents,
     /// Metric with the lowest average sub-score; `None` if there are no valid
     /// readings or every metric averaged 100.
     pub lowest_metric: Option<LowestMetric>,
 }
 
+/// One night for the history calendar: the headline numbers of a `NightReport`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NightSummary {
+    pub session_id: i64,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: DateTime<Utc>,
+    pub duration_minutes: i64,
+    pub short_session: bool,
+    #[serde(serialize_with = "round::tenths_opt")]
+    pub score: Option<f64>,
+    pub band: Option<Band>,
+    #[serde(serialize_with = "round::tenths")]
+    pub completeness_pct: f64,
+    pub incomplete: bool,
+}
+
+impl From<&NightReport> for NightSummary {
+    fn from(r: &NightReport) -> Self {
+        Self {
+            session_id: r.session_id,
+            started_at: r.started_at,
+            ended_at: r.ended_at,
+            duration_minutes: r.duration_minutes,
+            short_session: r.short_session,
+            score: r.score,
+            band: r.band,
+            completeness_pct: r.completeness_pct,
+            incomplete: r.incomplete,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct LowestMetric {
-    /// "eco2", "temp", or "humidity" (same names as the score fields).
+    /// "eco2", "temp", "humidity", "light", or "sound" (same names as the score fields).
     pub metric: &'static str,
     #[serde(serialize_with = "round::tenths")]
     pub avg_score: f64,
@@ -100,15 +136,20 @@ pub fn night_report(
             ("eco2", summary.eco2_ppm),
             ("temp", summary.temp_f),
             ("humidity", summary.humidity_pct),
+            ("light", summary.light_level),
+            ("sound", summary.sound_db),
         ]),
         eco2_ppm: summary.eco2_ppm,
         temp_f: summary.temp_f,
         humidity_pct: summary.humidity_pct,
+        light_level: summary.light_level,
+        sound_db: summary.sound_db,
+        noise_events: summary.noise_events,
     }
 }
 
 /// Lowest rounded average sub-score; ties go to the earlier metric.
-fn lowest_metric(metrics: [(&'static str, Option<MetricStats>); 3]) -> Option<LowestMetric> {
+fn lowest_metric(metrics: [(&'static str, Option<MetricStats>); 5]) -> Option<LowestMetric> {
     let mut lowest: Option<LowestMetric> = None;
     for (metric, stats) in metrics {
         let Some(stats) = stats else { continue };
@@ -123,6 +164,7 @@ fn lowest_metric(metrics: [(&'static str, Option<MetricStats>); 3]) -> Option<Lo
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::ambient::Ambient;
     use chrono::{Duration, TimeZone};
 
     use super::*;
@@ -140,6 +182,7 @@ mod tests {
             temp_f: Some(temp),
             humidity_pct: Some(humidity),
             uptime_s: WARM_UP_SECS,
+            ambient: Ambient::default(),
         }
     }
 
@@ -215,6 +258,30 @@ mod tests {
         assert_eq!(r.score, Some(100.0));
         assert_eq!(r.band, Some(Band::Great));
         assert_eq!(r.lowest_metric, None);
+    }
+
+    #[test]
+    fn a_loud_night_names_sound_and_counts_noise_events() {
+        use crate::domain::ambient::Ambient;
+        // Sound Leq 50 dB -> 20; peaks of 60 dB in minutes 10 and 30 (two events).
+        let readings: Vec<_> = (0..60)
+            .map(|m| Reading {
+                ambient: Ambient {
+                    light_level: Some(1.0),
+                    sound_db: Some(50.0),
+                    sound_peak_db: Some(if m == 10 || m == 30 { 60.0 } else { 44.0 }),
+                },
+                ..at(m * 60, 600.0, 68.0, 45.0)
+            })
+            .collect();
+        let r = night_report(1, start(), start() + Duration::hours(1), &readings);
+        assert_eq!(r.lowest_metric, Some(LowestMetric { metric: "sound", avg_score: 20.0 }));
+        assert_eq!(r.score, Some(84.0)); // (100 * 4 + 20) / 5
+        assert_eq!(r.noise_events.count, 2);
+        assert_eq!(r.light_level.unwrap().avg, 1.0);
+        let json = serde_json::to_value(&r).unwrap();
+        assert_eq!(json["sound_db"]["avg"], serde_json::json!(50.0));
+        assert_eq!(json["noise_events"]["count"], 2);
     }
 
     #[test]

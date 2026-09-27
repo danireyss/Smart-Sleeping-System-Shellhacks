@@ -44,6 +44,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sleep/end", post(sleep::end))
         .route("/api/sleep/current", get(sleep::current))
         .route("/api/night/latest", get(sleep::latest_night))
+        .route("/api/night/{id}", get(sleep::night))
+        .route("/api/nights", get(sleep::nights))
         .route("/api/chat", post(chat::chat))
         .fallback(frontend::serve)
         .with_state(state)

@@ -3,12 +3,15 @@ import { useEffect, useState } from 'react'
 import {
   getCurrent,
   getLatestNight,
+  getNight,
+  getNights,
   getReadings,
   getSleepCurrent,
   getTargets,
   ScoredReading,
   SleepSession,
   type NightReport,
+  type NightSummary,
   type ScoredReading as Reading,
   type Targets,
 } from '@/lib/api'
@@ -146,14 +149,40 @@ export function useReadings(start: Date | null, end: Date | null, refreshKey: un
   return readings
 }
 
-/** undefined while loading, null when no session has ended yet. */
-export function useLatestNight(): NightReport | null | undefined {
+/**
+ * A night's full report: the one with `id`, or the latest when `id` is null.
+ * undefined until the first load, null when there is no such night. While a
+ * different night loads, the previous report stays on screen.
+ */
+export function useNight(id: number | null): NightReport | null | undefined {
   const [night, setNight] = useState<NightReport | null | undefined>(undefined)
   useEffect(() => {
-    getLatestNight().then(setNight, (e) => {
-      console.error('night', e)
-      setNight(null)
+    let cancelled = false
+    ;(id === null ? getLatestNight() : getNight(id)).then(
+      (n) => !cancelled && setNight(n),
+      (e) => {
+        console.error('night', e)
+        if (!cancelled) setNight(null)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+  return night
+}
+
+/**
+ * Every finished night (newest first): undefined while loading, or null if the
+ * list couldn't be loaded (e.g. an older backend without /api/nights).
+ */
+export function useNights(): NightSummary[] | null | undefined {
+  const [nights, setNights] = useState<NightSummary[] | null | undefined>(undefined)
+  useEffect(() => {
+    getNights().then(setNights, (e) => {
+      console.error('nights', e)
+      setNights(null)
     })
   }, [])
-  return night
+  return nights
 }

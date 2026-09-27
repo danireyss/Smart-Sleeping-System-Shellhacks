@@ -72,6 +72,24 @@ pub fn to_dbfs(power: f64) -> f64 {
     }
 }
 
+/// Readings this close to the microphone's own noise (dB) can't be told apart
+/// from it, so they are reported as `floor - FLOOR_MARGIN_DB`.
+pub const FLOOR_MARGIN_DB: f64 = 10.0;
+
+/// Removes the microphone's self-noise from a calibrated level (both dB):
+/// the noise adds energy to every measurement, so it's subtracted as energy,
+/// 10·log10(10^(L/10) − 10^(F/10)). Barely changes loud sounds (57 → 56.9 with a
+/// 41.5 floor) and fixes quiet rooms (42.6 → 36.1). Levels at or near the floor
+/// read `floor - FLOOR_MARGIN_DB`, the quietest this microphone can tell.
+pub fn minus_noise_floor(level_db: f64, floor_db: f64) -> f64 {
+    let lowest = floor_db - FLOOR_MARGIN_DB;
+    let remaining = 10f64.powf(level_db / 10.0) - 10f64.powf(floor_db / 10.0);
+    if remaining <= 0.0 {
+        return lowest;
+    }
+    (10.0 * remaining.log10()).max(lowest)
+}
+
 /// Accumulates 125 ms windows over a minute into Leq and Lmax (dBFS).
 #[derive(Debug, Default)]
 pub struct SoundMinute {
@@ -124,6 +142,22 @@ mod tests {
         let half: Vec<i16> = (0..WINDOW_SAMPLES).map(|i| if i % 2 == 0 { 16384 } else { -16384 }).collect();
         assert!((to_dbfs(mean_square(&half)) + 6.02).abs() < 0.01);
         assert_eq!(to_dbfs(mean_square(&[0; 100])), -120.0);
+    }
+
+    #[test]
+    fn the_noise_floor_is_subtracted_as_energy() {
+        // What the board measured in a quiet room vs a phone sound meter (36 dB).
+        assert!((minus_noise_floor(42.6, 41.5) - 36.1).abs() < 0.05);
+        // Loud sounds are nearly unchanged, so the loud-sound calibration still holds.
+        assert!((minus_noise_floor(57.0, 41.5) - 56.88).abs() < 0.05);
+        // Twice the floor's energy: 3 dB above it leaves the floor's level.
+        assert!((minus_noise_floor(41.5 + 10.0 * 2f64.log10(), 41.5) - 41.5).abs() < 1e-9);
+        // At, below, or just above the floor: the quietest measurable level.
+        assert_eq!(minus_noise_floor(41.5, 41.5), 31.5);
+        assert_eq!(minus_noise_floor(38.0, 41.5), 31.5);
+        assert_eq!(minus_noise_floor(41.52, 41.5), 31.5);
+        // Order is kept, so Lmax stays >= Leq.
+        assert!(minus_noise_floor(50.0, 41.5) > minus_noise_floor(45.0, 41.5));
     }
 
     #[test]

@@ -2,7 +2,8 @@
 //!
 //! Records 16 kHz mono continuously, analyzes it in 125 ms windows, and every
 //! minute records Leq and Lmax (dBFS plus the calibration offset = estimated
-//! dB). Audio is analyzed in memory and dropped: nothing is ever stored.
+//! dB, minus the microphone's own noise if `SOUND_FLOOR_DB` is set). Audio is
+//! analyzed in memory and dropped: nothing is ever stored.
 
 use std::io::{self, Read};
 use std::process::{Child, Command, Stdio};
@@ -14,18 +15,34 @@ use chrono::{SubsecRound, Utc};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use crate::domain::ambient::{SoundMinute, WINDOW_SAMPLES};
+use crate::domain::ambient::{minus_noise_floor, SoundMinute, WINDOW_SAMPLES};
 use crate::services::AmbientService;
 
 /// 60 s of 125 ms windows.
 const WINDOWS_PER_MINUTE: usize = 480;
 const RESTART_DELAY: Duration = Duration::from_secs(10);
 
-pub fn spawn(device: String, calibration_db: f64, ambient: Arc<AmbientService>) -> JoinHandle<()> {
+/// How raw dBFS becomes an estimated level in dB.
+#[derive(Debug, Clone, Copy)]
+pub struct Calibration {
+    /// Added to dBFS (SOUND_CAL_DB).
+    pub offset_db: f64,
+    /// The microphone's self-noise, removed after the offset (SOUND_FLOOR_DB).
+    pub floor_db: Option<f64>,
+}
+
+impl Calibration {
+    fn apply(self, dbfs: f64) -> f64 {
+        let db = dbfs + self.offset_db;
+        self.floor_db.map_or(db, |floor| minus_noise_floor(db, floor))
+    }
+}
+
+pub fn spawn(device: String, calibration: Calibration, ambient: Arc<AmbientService>) -> JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         let mut failing = false;
         loop {
-            match record(&device, calibration_db, &ambient, &mut failing) {
+            match record(&device, calibration, &ambient, &mut failing) {
                 Ok(()) => warn!("microphone {device}: arecord stopped"),
                 Err(e) if !failing => {
                     warn!("microphone {device}: {e}");
@@ -38,7 +55,7 @@ pub fn spawn(device: String, calibration_db: f64, ambient: Arc<AmbientService>) 
     })
 }
 
-fn record(device: &str, calibration_db: f64, ambient: &AmbientService, failing: &mut bool) -> io::Result<()> {
+fn record(device: &str, calibration: Calibration, ambient: &AmbientService, failing: &mut bool) -> io::Result<()> {
     let mut child: Child = Command::new("arecord")
         .args(["-q", "-D", device, "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "raw"])
         .stdout(Stdio::piped())
@@ -59,7 +76,7 @@ fn record(device: &str, calibration_db: f64, ambient: &AmbientService, failing: 
         minute.add_window(&samples(&bytes));
         if minute.windows() >= WINDOWS_PER_MINUTE {
             if let Some((leq, lmax)) = minute.finish() {
-                ambient.record_sound(leq + calibration_db, lmax + calibration_db, Utc::now().trunc_subsecs(3));
+                ambient.record_sound(calibration.apply(leq), calibration.apply(lmax), Utc::now().trunc_subsecs(3));
             }
             minute = SoundMinute::default();
         }
@@ -80,6 +97,14 @@ pub fn samples(bytes: &[u8]) -> Vec<i16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calibration_adds_the_offset_then_removes_the_floor() {
+        let plain = Calibration { offset_db: 93.0, floor_db: None };
+        assert_eq!(plain.apply(-50.4), 42.6);
+        let with_floor = Calibration { offset_db: 93.0, floor_db: Some(41.5) };
+        assert!((with_floor.apply(-50.4) - 36.1).abs() < 0.05);
+    }
 
     #[test]
     fn decodes_little_endian_samples() {

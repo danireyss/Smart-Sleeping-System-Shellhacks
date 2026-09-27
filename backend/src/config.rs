@@ -23,6 +23,9 @@ pub struct Config {
     pub mic_device: Option<String>,
     /// Added to dBFS to estimate dB SPL; set by calibrating against a sound meter.
     pub sound_calibration_db: f64,
+    /// The microphone's own noise level (calibrated dB), removed from every reading
+    /// so quiet rooms aren't overstated; `None` = no correction.
+    pub sound_floor_db: Option<f64>,
 }
 
 impl Config {
@@ -41,6 +44,7 @@ impl Config {
             camera_exposure: parsed("CAMERA_EXPOSURE", 300),
             mic_device: non_empty("MIC_DEVICE"),
             sound_calibration_db: parsed("SOUND_CAL_DB", 90.0),
+            sound_floor_db: non_empty("SOUND_FLOOR_DB").and_then(|v| v.trim().parse().ok()),
         }
     }
 }

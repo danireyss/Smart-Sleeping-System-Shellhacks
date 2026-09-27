@@ -52,7 +52,11 @@ results. Scores the **room, not the person** — no health data.
   reading if < 120 s old. Enable with `CAMERA_DEVICE` / `MIC_DEVICE` (see `.env.example`;
   board needs `ffmpeg v4l-utils alsa-utils`, and App Lab's Webcam app must not hold the
   camera). Calibrate: note light levels with lights off / lamp / ceiling light; set
-  `SOUND_CAL_DB` so a steady sound matches a phone sound-meter app.
+  `SOUND_CAL_DB` so a steady loud sound (~60 dB) matches a phone sound-meter app, then set
+  `SOUND_FLOOR_DB` (the mic's self-noise, C922 at Mic Capture Volume 8 ≈ 41.5 dB) so a
+  silent room matches too; it's subtracted as energy (`ambient::minus_noise_floor`), so
+  loud readings barely change. Mic Capture Volume must stay at 8 (a replugged webcam
+  resets it to 15, which reads ~14 dB high).
 - **Device protocol** (`domain/device.rs`): the sketch calls the backend with
   `Bridge.call(method).result(value)`: `sleep_start` → `true`, `sleep_end` → `false`,
   `sleep_state` → bool, `score` → latest total or `-1`. The bridge registers these next to

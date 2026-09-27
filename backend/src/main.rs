@@ -62,8 +62,12 @@ async fn main() {
     }
     match &config.mic_device {
         Some(device) => {
-            info!("sound level from microphone {device}");
-            adapters::microphone::spawn(device.clone(), config.sound_calibration_db, ambient.clone());
+            let calibration = adapters::microphone::Calibration {
+                offset_db: config.sound_calibration_db,
+                floor_db: config.sound_floor_db,
+            };
+            info!("sound level from microphone {device} ({calibration:?})");
+            adapters::microphone::spawn(device.clone(), calibration, ambient.clone());
         }
         None => info!("no sound level (set MIC_DEVICE to enable)"),
     }

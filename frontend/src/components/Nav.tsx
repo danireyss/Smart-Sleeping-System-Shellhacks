@@ -16,7 +16,7 @@ export function Nav() {
       <div className="flex items-center gap-2.5">
         <CloudMoon className="size-5 text-great" aria-hidden />
         <p className="text-base font-medium tracking-[2px] text-text">
-          AURA<span className="text-text-muted"> SLEEP</span>
+          HYPNOS
         </p>
       </div>
       <nav className="flex items-center gap-2 rounded-full bg-surface-2 p-1" aria-label="Main">

@@ -135,7 +135,7 @@ export function ChatTile({ className }: { className?: string }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={busy || !!offline}
-            placeholder={offline ? OFFLINE_MESSAGE : 'Message Aura…'}
+            placeholder={offline ? OFFLINE_MESSAGE : 'Message Hypnos…'}
             maxLength={2000}
             className="flex-1 bg-transparent text-[13px] text-text outline-none placeholder:text-text-dim disabled:cursor-not-allowed"
           />

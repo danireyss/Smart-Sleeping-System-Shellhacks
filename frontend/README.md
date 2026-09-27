@@ -1,4 +1,4 @@
-# Aura Sleep web UI
+# Hypnos web UI
 
 Vite + React + TypeScript + Tailwind v4 + shadcn/ui, with zod validating every API
 response and Recharts for charts. Design: `../docs/DESIGN.md` and the Figma frames.

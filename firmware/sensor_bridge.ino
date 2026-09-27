@@ -1,4 +1,4 @@
-// Aura Sleep device sketch (UNO Q MCU): reads the sensors, sends readings to
+// Hypnos device sketch (UNO Q MCU): reads the sensors, sends readings to
 // the Linux backend through the Arduino router, and drives the 3.5" 480x320
 // SPI touch screen with the live score and the Sleep button.
 //
@@ -312,7 +312,7 @@ void drawAll() {
   }
   setBacklight(true);
   text(16, 12, 2, C_MUTED, C_BG);
-  tft.print("AURA SLEEP");
+  tft.print("HYPNOS");
   drawScore();
   drawReadings();
   drawButton(C_GREAT, C_BG, "Sleep");
